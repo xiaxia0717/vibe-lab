@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#07070b">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2307070b'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%2360d0ff' stroke-width='2'/%3E%3C/svg%3E">
 <title>浮影 · Drift</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -37,11 +39,15 @@ html,body{height:100%;overflow:hidden;background:#07070b;overscroll-behavior:non
   color:#fff;font-size:17px;line-height:1;cursor:pointer;display:grid;place-items:center}
 .modebar button:active{background:rgba(255,255,255,.22)}
 .modebar span{color:#fff;font-size:14px;letter-spacing:.2em;min-width:78px;text-align:center;
-  text-shadow:0 1px 10px rgba(0,0,0,.7)}
+  padding:9px 16px;border-radius:999px;background:rgba(0,0,0,.42);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,.14);text-shadow:0 1px 10px rgba(0,0,0,.7)}
 
 .hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);
-  text-align:center;color:rgba(255,255,255,.5);font-size:12px;letter-spacing:.08em;
+  text-align:center;color:rgba(255,255,255,.62);font-size:12px;letter-spacing:.08em;
   z-index:9;transition:opacity .9s;pointer-events:none;text-shadow:0 1px 10px rgba(0,0,0,.8)}
+.hint span{display:inline-block;padding:8px 16px;border-radius:999px;background:rgba(0,0,0,.45);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .hint.gone{opacity:0}
 
 .preview{position:fixed;inset:0;background:#07070b;z-index:20;display:flex;flex-direction:column;
@@ -85,7 +91,7 @@ html,body{height:100%;overflow:hidden;background:#07070b;overscroll-behavior:non
   <button id="next" aria-label="下一种效果">&#8250;</button>
 </div>
 
-<div class="hint gone" id="hint">按住画面拖动 · 把它搅开</div>
+<div class="hint gone" id="hint"><span>按住画面拖动 · 把它搅开</span></div>
 
 <div class="preview" id="preview" hidden>
   <img id="previewImg" alt="生成的壁纸预览">
@@ -211,7 +217,7 @@ var FRAG = [
 '    float l1 = dot(texture2D(u_tex, cover(uv + off + vec2(0.004, 0.0))).rgb, vec3(0.299, 0.587, 0.114));',
 '    float l2 = dot(texture2D(u_tex, cover(uv + off + vec2(0.0, 0.004))).rgb, vec3(0.299, 0.587, 0.114));',
 '    float e = clamp((abs(l0 - l1) + abs(l0 - l2)) * 6.0, 0.0, 1.0);',
-'    col += e * vec3(0.35, 0.90, 1.00) * u_intensity;',
+'    col = col * 0.22 + e * vec3(0.35, 0.90, 1.00) * u_intensity * 1.7;',
 '  }',
 '',
 '  col += infl * 0.16;',
@@ -349,6 +355,7 @@ function frame(now){
 
   draw();
 }
+resize();
 requestAnimationFrame(frame);
 
 var emptyEl = document.getElementById('empty');

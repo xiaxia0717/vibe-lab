@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#05060c">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2305060c'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%2317e0c0'/%3E%3Ccircle cx='23' cy='11' r='4' fill='%23ff3d9a'/%3E%3C/svg%3E">
 <title>流彩 · Aurora</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -19,8 +21,10 @@ html,body{height:100%;overflow:hidden;background:#05060c;overscroll-behavior:non
   color:#fff;display:grid;place-items:center;cursor:pointer;transition:transform .18s,background .18s}
 .ui button:active{transform:scale(.9);background:rgba(255,255,255,.24)}
 .hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 30px);
-  text-align:center;color:rgba(255,255,255,.58);font-size:13px;letter-spacing:.08em;
+  text-align:center;color:rgba(255,255,255,.68);font-size:13px;letter-spacing:.08em;
   z-index:10;transition:opacity .9s;pointer-events:none;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.hint span{display:inline-block;padding:8px 18px;border-radius:999px;background:rgba(0,0,0,.45);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .hint.gone{opacity:0}
 .tag{position:fixed;top:calc(env(safe-area-inset-top,0px) + 26px);left:20px;z-index:10;
   color:rgba(255,255,255,.5);font-size:12px;letter-spacing:.22em;pointer-events:none;
@@ -55,7 +59,7 @@ html,body{height:100%;overflow:hidden;background:#05060c;overscroll-behavior:non
     </svg>
   </button>
 </div>
-<div class="hint" id="hint">按住屏幕拖动 · 搅动这片色彩</div>
+<div class="hint" id="hint"><span>按住屏幕拖动 · 搅动这片色彩</span></div>
 <div class="preview hidden" id="preview">
   <img id="previewImg" alt="生成的壁纸预览">
   <div class="pbar">
