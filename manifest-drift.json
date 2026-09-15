@@ -1,0 +1,17 @@
+{
+  "name": "浮影 Drift · 照片流动壁纸",
+  "short_name": "浮影",
+  "description": "选一张照片，它变成会流动的手机壁纸。纯本地运行，照片不上传。",
+  "start_url": "./drift.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07070b",
+  "theme_color": "#07070b",
+  "categories": ["photo", "graphics", "utilities"],
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

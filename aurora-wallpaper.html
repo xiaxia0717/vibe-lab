@@ -8,6 +8,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2305060c'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%2317e0c0'/%3E%3Ccircle cx='23' cy='11' r='4' fill='%23ff3d9a'/%3E%3C/svg%3E">
+<link rel="manifest" href="./manifest-aurora.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>流彩 · Aurora</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -347,6 +349,12 @@ document.getElementById('back').addEventListener('click', function(){
   previewImg.removeAttribute('src');
 });
 })();
+
+if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('./sw.js').catch(function(){});
+  });
+}
 </script>
 </body>
 </html>
