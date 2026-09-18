@@ -129,6 +129,19 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 
 ---
 
+## 环境自检
+
+不确定环境是否就绪？双击 **`自检.bat`**，会逐项检查：
+
+- 手机连接（adb 设备）
+- 虚拟摄像头（OBS + pyvirtualcam）
+- 虚拟声卡（VB-Cable）
+- Python 依赖
+
+有问题的项目会给出具体的处理提示。装完驱动后建议跑一次确认。
+
+---
+
 ## 常见问题
 
 **App 显示"已断开"**
