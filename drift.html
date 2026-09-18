@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#07070b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2307070b'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%2360d0ff' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="manifest" href="./manifest-drift.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<title>浮影 · Drift</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{height:100%;overflow:hidden;background:#07070b;overscroll-behavior:none;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+.empty{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:22px;z-index:5;padding:32px;text-align:center}
+.empty h1{color:#fff;font-size:22px;font-weight:500;letter-spacing:.16em}
+.empty p{color:rgba(255,255,255,.42);font-size:13px;line-height:1.7;letter-spacing:.05em}
+.pick{padding:15px 34px;border-radius:999px;border:1px solid rgba(255,255,255,.28);
+  background:rgba(255,255,255,.10);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  color:#fff;font-size:15px;letter-spacing:.08em;cursor:pointer;transition:transform .18s,background .18s}
+.pick:active{transform:scale(.94);background:rgba(255,255,255,.22)}
+
+.ui{position:fixed;top:calc(env(safe-area-inset-top,0px) + 16px);right:16px;
+  display:flex;flex-direction:column;gap:10px;z-index:10}
+.ui button{width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.18);
+  background:rgba(0,0,0,.32);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  color:#fff;display:grid;place-items:center;cursor:pointer;transition:transform .18s,background .18s}
+.ui button:active{transform:scale(.9);background:rgba(255,255,255,.24)}
+
+.modebar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 26px);
+  display:flex;align-items:center;justify-content:center;gap:20px;z-index:10}
+.modebar button{width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.16);
+  background:rgba(0,0,0,.32);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  color:#fff;font-size:17px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.modebar button:active{background:rgba(255,255,255,.22)}
+.modebar span{color:#fff;font-size:14px;letter-spacing:.2em;min-width:78px;text-align:center;
+  padding:9px 16px;border-radius:999px;background:rgba(0,0,0,.42);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,.14);text-shadow:0 1px 10px rgba(0,0,0,.7)}
+
+.hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);
+  text-align:center;color:rgba(255,255,255,.62);font-size:12px;letter-spacing:.08em;
+  z-index:9;transition:opacity .9s;pointer-events:none;text-shadow:0 1px 10px rgba(0,0,0,.8)}
+.hint span{display:inline-block;padding:8px 16px;border-radius:999px;background:rgba(0,0,0,.45);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.hint.gone{opacity:0}
+
+.preview{position:fixed;inset:0;background:#07070b;z-index:20;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:18px;padding:24px}
+.preview img{max-width:100%;max-height:70vh;border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.7)}
+.pbar{display:flex;align-items:center;gap:14px;color:rgba(255,255,255,.66);font-size:13px}
+.pbar button{padding:9px 20px;border-radius:999px;border:1px solid rgba(255,255,255,.22);
+  background:rgba(255,255,255,.08);color:#fff;font-size:13px;cursor:pointer}
+.loading{position:fixed;inset:0;display:grid;place-items:center;background:rgba(7,7,11,.8);
+  z-index:30;color:rgba(255,255,255,.85);font-size:13px;letter-spacing:.1em}
+.fallback{position:fixed;inset:0;display:grid;place-items:center;color:#fff;font-size:14px;padding:32px;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="empty" id="empty">
+  <h1>浮 影</h1>
+  <p>选一张照片<br>它会变成会流动的壁纸</p>
+  <button class="pick" id="pick">选一张照片</button>
+</div>
+
+<input type="file" id="file" accept="image/*" hidden>
+
+<div class="ui" id="ui" hidden>
+  <button id="reimage" aria-label="换一张照片">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>
+    </svg>
+  </button>
+  <button id="save" aria-label="导出壁纸">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/>
+    </svg>
+  </button>
+</div>
+
+<div class="modebar" id="modebar" hidden>
+  <button id="prev" aria-label="上一种效果">&#8249;</button>
+  <span id="modeName">液态</span>
+  <button id="next" aria-label="下一种效果">&#8250;</button>
+</div>
+
+<div class="hint gone" id="hint"><span>按住画面拖动 · 把它搅开</span></div>
+
+<div class="preview" id="preview" hidden>
+  <img id="previewImg" alt="生成的壁纸预览">
+  <div class="pbar">
+    <button id="back">返回</button>
+    <span>长按图片 → 存储到照片</span>
+  </div>
+</div>
+<div class="loading" id="loading" hidden>正在渲染 1080 × 1920 …</div>
+
+<script>
+(function(){
+var canvas = document.getElementById('c');
+var gl = canvas.getContext('webgl', {antialias:false, preserveDrawingBuffer:true, alpha:false, powerPreference:'high-performance'})
+      || canvas.getContext('experimental-webgl', {antialias:false, preserveDrawingBuffer:true, alpha:false});
+if(!gl){
+  document.body.innerHTML = '<div class="fallback">这个浏览器不支持 WebGL，换 Chrome 或 Safari 打开试试。</div>';
+  return;
+}
+
+var VERT = [
+'attribute vec2 a_pos;',
+'varying vec2 v_uv;',
+'void main(){',
+'  v_uv = a_pos * 0.5 + 0.5;',
+'  gl_Position = vec4(a_pos, 0.0, 1.0);',
+'}'
+].join('\n');
+
+var FRAG = [
+'precision highp float;',
+'uniform sampler2D u_tex;',
+'uniform vec2  u_res;',
+'uniform vec2  u_imgRes;',
+'uniform float u_time;',
+'uniform vec2  u_touch;',
+'uniform float u_force;',
+'uniform float u_mode;',
+'uniform float u_intensity;',
+'varying vec2 v_uv;',
+'',
+'float hash(vec2 p){',
+'  p = fract(p * vec2(123.34, 456.21));',
+'  p += dot(p, p + 45.32);',
+'  return fract(p.x * p.y);',
+'}',
+'',
+'float noise(vec2 p){',
+'  vec2 i = floor(p);',
+'  vec2 f = fract(p);',
+'  vec2 u = f * f * (3.0 - 2.0 * f);',
+'  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),',
+'             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);',
+'}',
+'',
+'float fbm3(vec2 p){',
+'  float v = 0.0;',
+'  float a = 0.5;',
+'  for(int i = 0; i < 3; i++){',
+'    v += a * noise(p);',
+'    p = p * 2.03 + 17.1;',
+'    a *= 0.5;',
+'  }',
+'  return v;',
+'}',
+'',
+'vec2 cover(vec2 uv){',
+'  float ra = u_res.x / u_res.y;',
+'  float ia = u_imgRes.x / u_imgRes.y;',
+'  vec2 k = vec2(1.0);',
+'  if(ra > ia) k = vec2(1.0, ia / ra);',
+'  else k = vec2(ra / ia, 1.0);',
+'  return (uv - 0.5) * k + 0.5;',
+'}',
+'',
+'void main(){',
+'  vec2 uv = v_uv;',
+'  float asp = u_res.x / u_res.y;',
+'  vec2 sc = vec2(1.0, 1.0 / asp);',
+'  vec2 p = (uv - 0.5) * sc;',
+'  float t = u_time * 0.08;',
+'',
+'  vec2 q = vec2(fbm3(p * 1.6 + t), fbm3(p * 1.6 + vec2(5.2, 1.3) - t));',
+'  vec2 r = vec2(fbm3(p * 2.2 + 2.5 * q + t * 1.2),',
+'                fbm3(p * 2.2 + 2.5 * q + vec2(3.1, 7.7) - t));',
+'',
+'  vec2 off = vec2(0.0);',
+'',
+'  if(u_mode < 0.5){',
+'    off = (r - 0.5) * u_intensity * 0.42;',
+'  } else if(u_mode < 1.5){',
+'    vec2 c = uv - 0.5;',
+'    float ang = (q.x - 0.5) * u_intensity * 4.0;',
+'    float cs = cos(ang);',
+'    float sn = sin(ang);',
+'    off = vec2(c.x * cs - c.y * sn, c.x * sn + c.y * cs) - c;',
+'  } else if(u_mode < 2.5){',
+'    float band = floor(uv.y * 26.0);',
+'    float sh = (hash(vec2(band * 3.7, floor(t * 5.0))) - 0.5) * u_intensity * 0.34;',
+'    off = vec2(sh, 0.0);',
+'  } else if(u_mode < 3.5){',
+'    float n = 48.0 / max(u_intensity, 0.15);',
+'    vec2 px = floor(uv * n) / n;',
+'    off = (px - uv) + (q - 0.5) * 0.02;',
+'  } else {',
+'    off = (q - 0.5) * u_intensity * 0.16;',
+'  }',
+'',
+'  vec2 d = (uv - u_touch) * sc;',
+'  float infl = u_force * exp(-dot(d, d) * 22.0);',
+'  off += normalize(d + vec2(0.00001, 0.00001)) * infl * 0.10;',
+'',
+'  vec3 col = texture2D(u_tex, cover(uv + off)).rgb;',
+'',
+'  float ch = u_intensity * 0.0032 + infl * 0.010;',
+'  if(ch > 0.0002){',
+'    col.r = texture2D(u_tex, cover(uv + off + vec2(ch, 0.0))).r;',
+'    col.b = texture2D(u_tex, cover(uv + off - vec2(ch, 0.0))).b;',
+'  }',
+'',
+'  if(u_mode > 3.5){',
+'    float l0 = dot(texture2D(u_tex, cover(uv + off)).rgb, vec3(0.299, 0.587, 0.114));',
+'    float l1 = dot(texture2D(u_tex, cover(uv + off + vec2(0.004, 0.0))).rgb, vec3(0.299, 0.587, 0.114));',
+'    float l2 = dot(texture2D(u_tex, cover(uv + off + vec2(0.0, 0.004))).rgb, vec3(0.299, 0.587, 0.114));',
+'    float e = clamp((abs(l0 - l1) + abs(l0 - l2)) * 6.0, 0.0, 1.0);',
+'    col = col * 0.22 + e * vec3(0.35, 0.90, 1.00) * u_intensity * 1.7;',
+'  }',
+'',
+'  col += infl * 0.16;',
+'',
+'  float vig = smoothstep(1.35, 0.35, length((uv - 0.5) * sc));',
+'  col *= mix(0.74, 1.0, vig);',
+'',
+'  col += (hash(uv * u_res + fract(u_time) * 91.7) - 0.5) * 0.018;',
+'',
+'  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);',
+'}'
+].join('\n');
+
+function sh(type, src){
+  var s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+
+var prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+var buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+var aPos = gl.getAttribLocation(prog, 'a_pos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+var U = {};
+['u_tex','u_res','u_imgRes','u_time','u_touch','u_force','u_mode','u_intensity'].forEach(function(n){
+  U[n] = gl.getUniformLocation(prog, n);
+});
+
+var tex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([18,18,24,255]));
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.uniform1i(U.u_tex, 0);
+
+var MODES = ['液态', '涡旋', '故障', '马赛克', '霓虹'];
+var mode = 0;
+var intensity = 0.95;
+var imgRes = [1, 1];
+var hasImage = false;
+
+var RW = 0, RH = 0;
+function resize(){
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.round(window.innerWidth * dpr);
+  if(w > 640) w = 640;
+  var h = Math.round(w * window.innerHeight / window.innerWidth);
+  if(w === RW && h === RH) return;
+  RW = w; RH = h;
+  canvas.width = w;
+  canvas.height = h;
+  gl.viewport(0, 0, w, h);
+}
+
+var tx = 0.5, ty = 0.5, ttx = 0.5, tty = 0.5;
+var force = 0, tforce = 0;
+var down = false;
+
+function setPointer(cx, cy){
+  var r = canvas.getBoundingClientRect();
+  ttx = (cx - r.left) / r.width;
+  tty = 1.0 - (cy - r.top) / r.height;
+  tforce = 1;
+}
+
+var hint = document.getElementById('hint');
+var hintTimer = null;
+function showHint(){
+  hint.classList.remove('gone');
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(function(){ hint.classList.add('gone'); }, 5000);
+}
+function hideHint(){ hint.classList.add('gone'); clearTimeout(hintTimer); }
+
+canvas.addEventListener('touchstart', function(e){
+  e.preventDefault(); hideHint();
+  var t = e.touches[0];
+  if(t) setPointer(t.clientX, t.clientY);
+}, {passive:false});
+canvas.addEventListener('touchmove', function(e){
+  e.preventDefault();
+  var t = e.touches[0];
+  if(t) setPointer(t.clientX, t.clientY);
+}, {passive:false});
+canvas.addEventListener('touchend', function(e){ e.preventDefault(); tforce = 0; }, {passive:false});
+canvas.addEventListener('touchcancel', function(){ tforce = 0; });
+
+canvas.addEventListener('mousedown', function(e){ down = true; hideHint(); setPointer(e.clientX, e.clientY); });
+window.addEventListener('mousemove', function(e){ if(down) setPointer(e.clientX, e.clientY); });
+window.addEventListener('mouseup', function(){ down = false; tforce = 0; });
+
+var elapsed = 0, last = 0, paused = false;
+
+function draw(){
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.uniform2f(U.u_res, RW, RH);
+  gl.uniform2f(U.u_imgRes, imgRes[0], imgRes[1]);
+  gl.uniform1f(U.u_time, elapsed);
+  gl.uniform2f(U.u_touch, tx, ty);
+  gl.uniform1f(U.u_force, force);
+  gl.uniform1f(U.u_mode, mode);
+  gl.uniform1f(U.u_intensity, intensity);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+function frame(now){
+  requestAnimationFrame(frame);
+  if(!last) last = now;
+  var dt = (now - last) / 1000;
+  last = now;
+  if(dt > 0.05) dt = 0.05;
+  if(paused || !hasImage) return;
+  elapsed += dt;
+
+  resize();
+
+  tx += (ttx - tx) * 0.15;
+  ty += (tty - ty) * 0.15;
+  force += (tforce - force) * (tforce > force ? 0.10 : 0.025);
+
+  draw();
+}
+resize();
+requestAnimationFrame(frame);
+
+var emptyEl = document.getElementById('empty');
+var uiEl = document.getElementById('ui');
+var modebarEl = document.getElementById('modebar');
+var fileInput = document.getElementById('file');
+
+document.getElementById('pick').addEventListener('click', function(){ fileInput.click(); });
+document.getElementById('reimage').addEventListener('click', function(){ hideHint(); fileInput.click(); });
+
+fileInput.addEventListener('change', function(){
+  var f = fileInput.files && fileInput.files[0];
+  if(!f) return;
+  var url = URL.createObjectURL(f);
+  var img = new Image();
+  img.onload = function(){
+    var MAX = 2048;
+    var w = img.naturalWidth || img.width;
+    var h = img.naturalHeight || img.height;
+    var s = Math.min(1, MAX / Math.max(w, h));
+    var tw = Math.max(1, Math.round(w * s));
+    var th = Math.max(1, Math.round(h * s));
+
+    var cv = document.createElement('canvas');
+    cv.width = tw;
+    cv.height = th;
+    cv.getContext('2d').drawImage(img, 0, 0, tw, th);
+
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    imgRes = [tw, th];
+    hasImage = true;
+
+    emptyEl.hidden = true;
+    uiEl.hidden = false;
+    modebarEl.hidden = false;
+    document.getElementById('modeName').textContent = MODES[mode];
+    showHint();
+
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = function(){ URL.revokeObjectURL(url); };
+  img.src = url;
+  fileInput.value = '';
+});
+
+document.getElementById('prev').addEventListener('click', function(){
+  mode = (mode - 1 + MODES.length) % MODES.length;
+  document.getElementById('modeName').textContent = MODES[mode];
+});
+document.getElementById('next').addEventListener('click', function(){
+  mode = (mode + 1) % MODES.length;
+  document.getElementById('modeName').textContent = MODES[mode];
+});
+
+var preview = document.getElementById('preview');
+var previewImg = document.getElementById('previewImg');
+var loading = document.getElementById('loading');
+
+document.getElementById('save').addEventListener('click', function(){
+  if(!hasImage) return;
+  hideHint();
+  paused = true;
+  loading.hidden = false;
+
+  setTimeout(function(){
+    var W = 1080, H = 1920;
+    canvas.width = W;
+    canvas.height = H;
+    gl.viewport(0, 0, W, H);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform2f(U.u_res, W, H);
+    gl.uniform2f(U.u_imgRes, imgRes[0], imgRes[1]);
+    gl.uniform1f(U.u_time, elapsed);
+    gl.uniform2f(U.u_touch, tx, ty);
+    gl.uniform1f(U.u_force, force);
+    gl.uniform1f(U.u_mode, mode);
+    gl.uniform1f(U.u_intensity, intensity);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    var url;
+    try { url = canvas.toDataURL('image/png'); }
+    catch(err){ url = canvas.toDataURL('image/jpeg', 0.92); }
+
+    RW = 0; RH = 0;
+    resize();
+    paused = false;
+    loading.hidden = true;
+
+    previewImg.src = url;
+    preview.hidden = false;
+  }, 60);
+});
+
+document.getElementById('back').addEventListener('click', function(){
+  preview.hidden = true;
+  previewImg.removeAttribute('src');
+});
+})();
+
+if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('./sw.js').catch(function(){});
+  });
+}
+</script>
+</body>
+</html>
