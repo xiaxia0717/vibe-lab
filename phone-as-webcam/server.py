@@ -92,10 +92,21 @@ class _OutputSink:
             pass
 
 
+def is_virtual_audio_name(name: str) -> bool:
+    """判断某个音频设备名是不是虚拟声卡/映射器（不是真实扬声器）。"""
+    low = name.lower()
+    for k in ("cable", "vb-audio", "voicemeeter", "virtual audio",
+              "声音映射器", "sound mapper", "主声音驱动程序", "primary sound"):
+        if k in low:
+            return True
+    return False
+
+
 class PcmPlayer:
     """把手机的麦克风声音送出去。
 
-    - 默认送到系统默认扬声器（本机监听）
+    - 送到系统默认扬声器（本机监听）；如果默认播放设备被 VB-Cable 抢占，
+      会自动改用一个真实扬声器，避免"本机听不到声音"。
     - 如果装了 VB-Cable 并开启 --virtual-mic，则同时送到
       "CABLE Input"，这样微信/会议软件把麦克风选成 "CABLE Output"
       就能听到手机的声音。
@@ -107,9 +118,14 @@ class PcmPlayer:
         self.rate = rate
         self.sinks = []
 
+        out_idx = self._pick_monitor_output(sd)
         try:
-            self.sinks.append(_OutputSink(None, rate, "系统扬声器"))
-            print("  [麦克风] 已输出到系统扬声器（本机可监听）")
+            self.sinks.append(_OutputSink(out_idx, rate, "本机扬声器"))
+            if out_idx is None:
+                print("  [麦克风] 已输出到系统扬声器（本机可监听）")
+            else:
+                name = str(sd.query_devices(out_idx).get("name", ""))
+                print(f"  [麦克风] 默认播放设备是虚拟声卡，已自动改用 -> {name}")
         except Exception as e:
             print(f"  [麦克风] 扬声器输出失败: {e}")
 
@@ -125,6 +141,41 @@ class PcmPlayer:
                     print('               在微信/会议软件里把「麦克风」选成 "CABLE Output" 即可')
                 except Exception as e:
                     print(f"  [虚拟麦克风] 打开失败: {e}")
+
+    @classmethod
+    def _pick_monitor_output(cls, sd):
+        """返回本机监听该用的输出设备索引；None 表示直接用系统默认。
+
+        VB-Cable 装完后 Windows 常把 "CABLE Input" 设成默认播放设备，
+        这时若还往默认设备送手机麦克风的声音，本机就听不见，
+        而且会和回环捕获互相喂声音（回声）。所以这里主动挑一个真实扬声器。
+        """
+        try:
+            devs = sd.query_devices()
+            default_out = sd.default.device[1]
+        except Exception:
+            return None
+        if default_out is None or default_out < 0:
+            return None
+        try:
+            d0 = devs[default_out]
+            if not is_virtual_audio_name(str(d0.get("name", ""))):
+                return None                      # 默认就是真实设备，照旧
+            hostapi = d0.get("hostapi")
+        except Exception:
+            return None
+
+        fallback = None
+        for i, d in enumerate(devs):
+            if d.get("max_output_channels", 0) <= 0:
+                continue
+            if is_virtual_audio_name(str(d.get("name", ""))):
+                continue
+            if d.get("hostapi") == hostapi:
+                return i
+            if fallback is None:
+                fallback = i
+        return fallback
 
     @staticmethod
     def _find_cable_input(sd):
@@ -218,6 +269,17 @@ class Bridge:
                 warnings.filterwarnings("ignore", category=sc.SoundcardRuntimeWarning)
 
                 speaker = sc.default_speaker()
+                # 默认播放设备若是虚拟声卡，回环捕获到的会是自己送进去的
+                # 手机麦克风声音 -> 手机听到自己 -> 回声。改用真实扬声器。
+                if is_virtual_audio_name(str(speaker.name)):
+                    real = None
+                    for sp in sc.all_speakers():
+                        if not is_virtual_audio_name(str(sp.name)):
+                            real = sp
+                            break
+                    if real is not None:
+                        print(f"  [扬声器] 默认播放设备是虚拟声卡，已自动改用 -> {real.name}")
+                        speaker = real
                 loop = sc.get_microphone(id=str(speaker.name), include_loopback=True)
                 if loop is None:
                     print("  [扬声器] 找不到回环设备，跳过")

@@ -31,23 +31,41 @@
 
 ---
 
-## 一次性准备（只做一次）
+## 一次性准备（本机已完成 ✅）
 
-### 1. 装虚拟摄像头驱动 → 双击 `安装OBS.bat`
+> 下面这些**已经全部装好并实测通过**，正常使用不需要再操作。
+> 只有驱动坏掉需要重装时才看这一节。
 
-装的是 OBS Studio（免费开源，200MB）。**装它只为拿自带的虚拟摄像头驱动**，
-装完不需要打开 OBS。
+### 1. 虚拟摄像头驱动（OBS Studio）
 
-### 2. 装虚拟声卡驱动 → 双击 `安装虚拟声卡.bat`
+装 OBS Studio 只为拿它自带的虚拟摄像头驱动，装完不需要打开 OBS。
 
-装的是 VB-Cable（免费）。装完**必须重启电脑**。
+- 实际安装位置：`D:\Program Files\obs-studio`（C 盘空间不够，装到了 D 盘）
+- 虚拟摄像头设备名：**OBS Virtual Camera**
 
-> 只想要摄像头、不在乎麦克风的话，这一步可以跳过。
+> ⚠️ 踩坑记录：自检脚本早期写死了 `C:\Program Files\obs-studio`，
+> 导致明明装好了却报"未安装"。现在改为**从注册表 `HKLM\SOFTWARE\OBS Studio`
+> 读取安装路径**，并且**真实打开一次虚拟摄像头**来验证，不再看目录。
+
+### 2. 虚拟声卡驱动（VB-Cable）
+
+- 设备：**CABLE Input**（播放端）/ **CABLE Output**（录音端）
+- 安装程序必须**以管理员身份运行**，否则报
+  `LOADDRV: Acces denied to registry`。
+- 装完**必须重启电脑**，驱动才会加载。
+
+> ⚠️ **安装后遗症**：Windows 会把新装的 `CABLE Input` 设为**默认播放设备**，
+> 结果是「电脑没声音 + 回环捕获到自己的声音导致回声」。
+> 处理办法（两个都做了）：
+> 1. `server.py` 自动检测并绕开虚拟声卡（`is_virtual_audio_name()`），
+>    本机监听和回环捕获都改用一个真实扬声器；
+> 2. 手动把系统默认播放设备改回真实设备
+>    （设置 → 系统 → 声音 → 输出）。
 
 ### 3. 手机装 App
 
-APK 已经装好了（桌面上的「手机摄像头」）。
-如果换了手机或重装，执行：
+APK 已经装好了（手机上的「手机摄像头」）。
+如果换了手机或重装：
 
 ```bash
 D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\debug\app-debug.apk
@@ -61,16 +79,20 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 
 手机需开启「开发者选项 → USB 调试」。
 
-### 2. 双击 `phone-as-webcam\启动.bat`
+### 2. 双击桌面 `1-启动服务.bat`
 
-脚本会自动完成：检查手机连接 → 建立端口转发 → 启动服务。
-会弹出一个预览窗口，能看到手机画面。
+脚本会自动完成：检查手机连接 → 建立端口转发（`adb reverse`）→ 启动服务。
+
+- 想看到画面：去掉 `--no-gui`（默认就有预览窗口）
+- 关掉那个窗口 = 停止服务
 
 ### 3. 手机上打开「手机摄像头」App，点「启动」
 
-- 电脑地址填 `127.0.0.1`，端口 `8080`（默认就是）
+- 地址端口已经在 App 里固定好了（`127.0.0.1:8080`），**不用填任何东西**
 - 首次会请求相机和麦克风权限，点允许
 - 状态变成绿色的「已连接」就成功了
+
+> 断线会自动重连（2.5 秒一次），中途重启电脑端服务也不用管手机。
 
 ---
 
@@ -80,6 +102,7 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 |---|---|
 | 摄像头 / Camera | **OBS Virtual Camera** |
 | 麦克风 / Microphone | **CABLE Output** |
+| 扬声器 / Speaker | 你真实的音箱或耳机（**别选 CABLE**） |
 
 装完驱动后如果软件里找不到，**重启那个软件**（大多数软件只在启动时枚举设备）。
 
@@ -91,7 +114,7 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 
 | 控件 | 作用 |
 |---|---|
-| 启动 / 停止 | 开始或结束推流（中间大按钮） |
+| 启动 / 停止 | 开始或结束推流（中间大按钮，**点一下开、再点一下关**） |
 | 切换镜头 | 前置 ↔ 后置摄像头 |
 | 麦克风 | 是否把手机麦克风传给电脑 |
 | 扬声器 | 是否播放电脑传回的声音 |
@@ -131,14 +154,14 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 
 ## 环境自检
 
-不确定环境是否就绪？双击 **`自检.bat`**，会逐项检查：
+不确定环境是否就绪？双击桌面 **`2-环境自检.bat`**，会逐项检查：
 
 - 手机连接（adb 设备）
-- 虚拟摄像头（OBS + pyvirtualcam）
-- 虚拟声卡（VB-Cable）
+- 虚拟摄像头（从注册表找 OBS 安装路径 + **真实打开一次**验证）
+- 虚拟声卡（VB-Cable 的 CABLE 设备）
 - Python 依赖
 
-有问题的项目会给出具体的处理提示。装完驱动后建议跑一次确认。
+全绿会打印使用流程；有问题的项目会给出具体的处理提示。
 
 ---
 
