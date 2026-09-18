@@ -20,6 +20,7 @@ import android.util.Log
 import android.util.Size
 import android.view.HapticFeedbackConstants
 import android.view.View
+import android.view.WindowManager
 import android.view.animation.AnimationUtils
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
@@ -182,6 +183,10 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
         running = true
 
         acquireWakeLock()
+        // 关键：必须用窗口标志保持屏幕常亮。
+        // 旧的 SCREEN_DIM_WAKE_LOCK 在 Android 13 上已失效，
+        // 屏幕一休眠 Activity 就 onStop，CameraX 跟着解绑 -> 画面直接断。
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         binding.placeholder.visibility = View.GONE
         binding.btnStart.startAnimation(
             AnimationUtils.loadAnimation(this, R.anim.press)
@@ -205,6 +210,7 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
         client?.close()
         client = null
         releaseWakeLock()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         binding.placeholder.visibility = View.VISIBLE
         binding.tvFps.text = "-- fps"
@@ -526,7 +532,10 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
     private fun acquireWakeLock() {
         if (wakeLock != null) return
         val pm = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK, "PhoneCam::stream")
+        // 只保 CPU 不休眠；屏幕常亮交给 FLAG_KEEP_SCREEN_ON 管。
+        // SCREEN_DIM_WAKE_LOCK 自 API 17 起已废弃，在 Android 13 上不生效。
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PhoneCam::stream")
+        wakeLock?.setReferenceCounted(false)
         wakeLock?.acquire(4 * 60 * 60 * 1000L)
     }
 
