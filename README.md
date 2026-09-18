@@ -135,6 +135,26 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 
 ---
 
+## 数据线 还是 WiFi？
+
+两种都支持，**而且不用手动切**。
+
+| | 数据线模式 | WiFi 模式 |
+|---|---|---|
+| 前置条件 | 电脑上跑一次 `adb reverse tcp:8080 tcp:8080` | 手机和电脑连同一个 WiFi |
+| 电脑地址 | `127.0.0.1` | 电脑的局域网 IP |
+| 稳定性 | 更稳，推荐 | 方便，无需插线 |
+
+**自动发现**：App 连不上时会往局域网广播一句询问，电脑回自己的地址，
+所以 WiFi 模式下**你不需要知道电脑 IP，也不用填** —— 路由器 DHCP 换了地址也不怕。
+（实现见 `phone-cam-app/.../Discovery.kt` 和 `server.py` 的 `start_discovery_responder`，
+用裸 UDP，端口 `47823`，不依赖任何第三方库。）
+
+连接顺序：**上次成功的地址 → 设置里填的地址 → 自动发现**。
+所以从数据线拔掉切到 WiFi、或者反过来，都会自己恢复。
+
+---
+
 ## 电脑端服务参数
 
 ```bash

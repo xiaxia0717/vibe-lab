@@ -1,0 +1,2 @@
+﻿kill PID 8848 python
+after: port free

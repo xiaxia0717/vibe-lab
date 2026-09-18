@@ -67,6 +67,12 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
     @Volatile private var lensFacing = CameraSelector.LENS_FACING_BACK
     @Volatile private var destroyed = false
 
+    /** 局域网自动发现出来的电脑地址 */
+    @Volatile private var discoveredHost: String? = null
+    @Volatile private var discovering = false
+    private var failCount = 0
+    private var reconnectTask: Runnable? = null
+
     private var targetFps = 24
     private var lastFrameAt = 0L
     private var framesInWindow = 0
@@ -203,7 +209,7 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
 
     private fun stopAll() {
         running = false
-        reconnectScheduled = false
+        cancelReconnect()
         stopCamera()
         stopMic()
         stopAudioPlayback()
@@ -251,15 +257,55 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
 
     private fun connectServer() {
         setStatus("连接中…", StatusColor.WARN)
-        val c = StreamClient(prefs.host, prefs.port, this)
+        val c = StreamClient(currentHost(), prefs.port, this)
         client = c
         c.connect()
     }
 
+    /** 这次该连哪个地址：自动发现的 > 上次成功的 > 用户设置的。 */
+    private fun currentHost(): String =
+        discoveredHost ?: prefs.lastGoodHost ?: prefs.host
+
+    /**
+     * 连不上时在后台找一下电脑（局域网广播）。
+     *
+     * 这样 WiFi 模式下不用手填 IP，路由器换地址也不怕。
+     * 找不到就清掉记住的地址，下次回到用户设置的地址重试。
+     */
+    private fun startDiscovery() {
+        if (discovering || destroyed) return
+        discovering = true
+        Thread {
+            val found = Discovery.find(2500)
+            mainHandler.post {
+                discovering = false
+                if (destroyed || !running) return@post
+
+                if (found.isNullOrBlank()) {
+                    if (prefs.lastGoodHost != null) {
+                        prefs.lastGoodHost = null
+                        binding.tvLog.text = "没找到电脑，改用设置的地址重试…"
+                    }
+                    return@post
+                }
+                if (found == currentHost()) return@post
+
+                discoveredHost = found
+                prefs.lastGoodHost = found
+                binding.tvLog.text = "已自动找到电脑: $found"
+                cancelReconnect()
+                client?.close()
+                connectServer()
+            }
+        }.start()
+    }
+
     override fun onConnected() {
         prefs.everConnected = true
+        failCount = 0
+        prefs.lastGoodHost = currentHost()
         mainHandler.post {
-            reconnectScheduled = false
+            cancelReconnect()
             setStatus("已连接", StatusColor.OK)
             binding.tvLog.text = "已连接电脑，画面正在传输"
             try {
@@ -280,8 +326,11 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
                 setStatus("已停止", StatusColor.IDLE)
                 return@post
             }
+            failCount++
             setStatus("重连中…", StatusColor.WARN)
             binding.tvLog.text = "连接断开，正在自动重连…"
+            // 连不上就试着在局域网里找一下电脑（WiFi 模式免填 IP）
+            startDiscovery()
             scheduleReconnect()
         }
     }
@@ -290,13 +339,28 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
     private fun scheduleReconnect() {
         if (reconnectScheduled || destroyed || !running) return
         reconnectScheduled = true
-        mainHandler.postDelayed({
+        val task = Runnable {
+            reconnectTask = null
             reconnectScheduled = false
             if (running && !destroyed) {
                 client?.close()
                 connectServer()
             }
-        }, RECONNECT_DELAY_MS)
+        }
+        reconnectTask = task
+        mainHandler.postDelayed(task, RECONNECT_DELAY_MS)
+    }
+
+    /**
+     * 取消还没执行的重连。
+     *
+     * 必须的：自动发现找到电脑后会主动重连，如果不把排队的重连取消掉，
+     * 它过一会儿又会把刚建好的连接掐掉，出现"连上-断开-连上"的抖动。
+     */
+    private fun cancelReconnect() {
+        reconnectTask?.let { mainHandler.removeCallbacks(it) }
+        reconnectTask = null
+        reconnectScheduled = false
     }
 
     override fun onRemoteAudio(pcm: ByteArray) {

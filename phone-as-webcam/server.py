@@ -481,6 +481,57 @@ def run_gui(bridge: Bridge, url_local: str, url_lan: str):
 
 
 # --------------------------------------------------------------------------
+# 局域网自动发现：手机不用手填电脑 IP
+# --------------------------------------------------------------------------
+DISCOVERY_PORT = 47823
+_DISCOVERY_REQ = b"PHONECAM?"
+
+
+def start_discovery_responder(port: int, is_running):
+    """监听手机的发现请求，回一个带端口的应答。
+
+    手机端广播 "PHONECAM?"，本机收到后单播回 "PHONECAM1|<port>"，
+    手机据此拿到电脑的局域网 IP —— 免去手动填地址，也不怕 DHCP 换 IP。
+    用 UDP 而不是靠 mDNS，是因为不依赖任何第三方库。
+    """
+
+    def worker():
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("", DISCOVERY_PORT))
+            sock.settimeout(0.5)
+        except Exception as e:
+            print(f"  [自动发现] 未开启（不影响使用）: {e}")
+            return
+
+        print("  [自动发现] 已开启：手机连同一个 WiFi 时会自动找到电脑")
+        reply = b"PHONECAM1|" + str(port).encode()
+        try:
+            while is_running():
+                try:
+                    data, addr = sock.recvfrom(256)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                if data.startswith(_DISCOVERY_REQ):
+                    try:
+                        sock.sendto(reply, addr)
+                    except Exception:
+                        pass
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    t = threading.Thread(target=worker, daemon=True, name="discovery")
+    t.start()
+    return t
+
+
+# --------------------------------------------------------------------------
 # 入口
 # --------------------------------------------------------------------------
 def main():
@@ -514,6 +565,7 @@ def main():
         bridge.init_virtual_cam(1280, 720, args.fps)
     bridge.init_player()
     bridge.start_speaker()
+    start_discovery_responder(args.port, lambda: bridge.running)
 
     app = bridge.make_app()
     runner = web.AppRunner(app)

@@ -59,6 +59,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_EVER_CONNECTED, false)
         set(v) = sp.edit().putBoolean(KEY_EVER_CONNECTED, v).apply()
 
+    /** 上次成功连上的地址（自动发现出来的），下次优先用它 */
+    var lastGoodHost: String?
+        get() = sp.getString(KEY_LAST_GOOD_HOST, null)?.takeIf { it.isNotBlank() }
+        set(v) = sp.edit().putString(KEY_LAST_GOOD_HOST, v).apply()
+
     fun resetToDefaults() {
         sp.edit().clear().apply()
     }
@@ -76,5 +81,6 @@ class Prefs(context: Context) {
         private const val KEY_MIC = "mic"
         private const val KEY_SPEAKER = "speaker"
         private const val KEY_EVER_CONNECTED = "ever_connected"
+        private const val KEY_LAST_GOOD_HOST = "last_good_host"
     }
 }

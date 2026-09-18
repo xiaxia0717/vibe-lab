@@ -54,7 +54,10 @@ class SettingsActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun afterTextChanged(s: Editable?) {
                 if (loading) return
-                prefs.host = binding.etHost.text.toString()
+                val newHost = binding.etHost.text.toString()
+                // 用户手改了地址 -> 丢掉之前自动发现记下来的，改用他填的
+                if (newHost != prefs.host) prefs.lastGoodHost = null
+                prefs.host = newHost
                 val p = binding.etPort.text.toString().toIntOrNull()
                 if (p != null && p in 1..65535) prefs.port = p
             }
