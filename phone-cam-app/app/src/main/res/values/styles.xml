@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="SectionTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">20dp</item>
+        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:textColor">#6B7484</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <style name="CardBox">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+    </style>
+
+    <style name="RowBox">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">56dp</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+
+    <style name="RowTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">#F2F4F8</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="RowSub">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:textColor">#6B7484</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+
+    <style name="RowInput">
+        <item name="android:layout_width">150dp</item>
+        <item name="android:layout_height">38dp</item>
+        <item name="android:background">@drawable/bg_input</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textColor">#F2F4F8</item>
+        <item name="android:textColorHint">#4A5160</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:gravity">end|center_vertical</item>
+    </style>
+
+    <style name="RowSpinner">
+        <item name="android:layout_width">150dp</item>
+        <item name="android:layout_height">38dp</item>
+        <item name="android:background">@drawable/bg_input</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">8dp</item>
+    </style>
+
+    <style name="Divider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:background">#1C222E</item>
+    </style>
+
+    <style name="HintText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">10dp</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="android:lineSpacingExtra">3dp</item>
+        <item name="android:textColor">#5A6270</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+
+</resources>
