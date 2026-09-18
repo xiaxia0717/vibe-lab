@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">手机摄像头</string>
+    <string name="app_subtitle">让手机成为电脑的摄像头 · 麦克风 · 扬声器</string>
+    <string name="hint_host">电脑 IP</string>
+    <string name="hint_port">端口</string>
+
+    <string-array name="quality_options">
+        <item>流畅 480p</item>
+        <item>高清 720p</item>
+        <item>超清 1080p</item>
+    </string-array>
+
+    <string-array name="fps_options">
+        <item>15 fps</item>
+        <item>24 fps</item>
+        <item>30 fps</item>
+    </string-array>
+</resources>

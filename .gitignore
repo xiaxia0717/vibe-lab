@@ -1,0 +1,31 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Android 构建产物
+phone-cam-app/.gradle/
+phone-cam-app/build/
+phone-cam-app/app/build/
+phone-cam-app/local.properties
+phone-cam-app/.idea/
+phone-cam-app/captures/
+
+# 大文件
+*.exe
+*.zip
+
+# WorkBuddy 私有数据
+.workbuddy-ai/
+
+# 系统
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# 手机截图（含个人画面，不上传）
+/*.png
+/*.jpg
+
+# 但 App 图标要保留
+!phone-cam-app/app/src/main/res/**/*.png

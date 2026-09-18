@@ -1,0 +1,11 @@
+# 核心依赖（必需）
+aiohttp>=3.9
+numpy>=1.26
+Pillow>=10.0
+sounddevice>=0.4.6
+
+# 可选依赖
+# soundcard      —— 把电脑的声音传回手机播放（扬声器功能）
+# pyvirtualcam   —— 把手机画面输出成系统虚拟摄像头（需要先装 OBS Studio）
+soundcard>=0.4.3
+pyvirtualcam>=0.11
