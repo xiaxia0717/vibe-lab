@@ -105,35 +105,37 @@ def is_virtual_audio_name(name: str) -> bool:
 class PcmPlayer:
     """把手机的麦克风声音送出去。
 
-    - 送到系统默认扬声器（本机监听）；如果默认播放设备被 VB-Cable 抢占，
-      会自动改用一个真实扬声器，避免"本机听不到声音"。
-    - 如果装了 VB-Cable 并开启 --virtual-mic，则同时送到
-      "CABLE Input"，这样微信/会议软件把麦克风选成 "CABLE Output"
-      就能听到手机的声音。
+    - 默认只送到 "CABLE Input"（虚拟声卡），微信/会议软件把麦克风选成
+      "CABLE Output" 就能听到手机的声音。
+    - 本机监听（再送到真实扬声器）默认**关闭**。原因：电脑扬声器放出来的
+      声音会被手机麦克风再拾回去，形成声学回环 —— 对方会听到自己的回声。
+      通话时你也不需要听自己的声音。要调试就用 --monitor 打开。
     """
 
-    def __init__(self, rate: int = PCM_RATE, virtual_mic: bool = False):
+    def __init__(self, rate: int = PCM_RATE, virtual_mic: bool = False,
+                 monitor: bool = False):
         import sounddevice as sd
 
         self.rate = rate
         self.sinks = []
 
-        out_idx = self._pick_monitor_output(sd)
-        try:
-            self.sinks.append(_OutputSink(out_idx, rate, "本机扬声器"))
-            if out_idx is None:
-                print("  [麦克风] 已输出到系统扬声器（本机可监听）")
-            else:
-                name = str(sd.query_devices(out_idx).get("name", ""))
-                print(f"  [麦克风] 默认播放设备是虚拟声卡，已自动改用 -> {name}")
-        except Exception as e:
-            print(f"  [麦克风] 扬声器输出失败: {e}")
+        if monitor:
+            out_idx = self._pick_monitor_output(sd)
+            try:
+                self.sinks.append(_OutputSink(out_idx, rate, "本机扬声器"))
+                if out_idx is None:
+                    print("  [麦克风] 本机监听已开启 -> 系统扬声器")
+                else:
+                    name = str(sd.query_devices(out_idx).get("name", ""))
+                    print(f"  [麦克风] 本机监听已开启 -> {name}")
+            except Exception as e:
+                print(f"  [麦克风] 扬声器输出失败: {e}")
 
         if virtual_mic:
             idx = self._find_cable_input(sd)
             if idx is None:
                 print("  [虚拟麦克风] 未找到 CABLE Input 设备")
-                print("               请先安装 VB-Cable（运行 安装虚拟声卡.bat）")
+                print("               请先装 VB-Cable（桌面「备用-驱动安装」里有）")
             else:
                 try:
                     self.sinks.append(_OutputSink(idx, rate, "CABLE Input"))
@@ -141,6 +143,9 @@ class PcmPlayer:
                     print('               在微信/会议软件里把「麦克风」选成 "CABLE Output" 即可')
                 except Exception as e:
                     print(f"  [虚拟麦克风] 打开失败: {e}")
+
+        if not self.sinks:
+            print("  [麦克风] 没有可用的输出目标，手机声音不会送到任何地方")
 
     @classmethod
     def _pick_monitor_output(cls, sd):
@@ -204,6 +209,47 @@ class PcmPlayer:
         self.sinks = []
 
 
+_PREVIEW_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>手机当摄像头 — 预览</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;color:#9aa0a6;
+            font-family:"Microsoft YaHei",system-ui,sans-serif}
+  #wrap{height:100%;display:flex;flex-direction:column;padding:12px;
+        box-sizing:border-box}
+  #info{font-size:13px;padding:6px 2px;white-space:pre-wrap}
+  #box{flex:1;min-height:0;display:flex;align-items:center;
+       justify-content:center;background:#000;border-radius:10px}
+  img{max-width:100%;max-height:100%;object-fit:contain}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="info">正在等待手机画面…</div>
+  <div id="box"><img id="v" alt="预览"></div>
+</div>
+<script>
+let last = 0, frames = 0, t0 = Date.now();
+const v = document.getElementById('v');
+const info = document.getElementById('info');
+function tick() {
+  v.src = '/frame.jpg?t=' + Date.now();
+  v.onload = () => { frames++; };
+  const s = ((Date.now() - t0) / 1000);
+  info.textContent = '实时预览 · ' + (s > 0 ? (frames / s).toFixed(1) : 0) + ' fps'
+                   + '    （关掉本页不影响推流）';
+  setTimeout(tick, 60);
+}
+tick();
+</script>
+</body>
+</html>
+"""
+
+
 # --------------------------------------------------------------------------
 # 核心桥接
 # --------------------------------------------------------------------------
@@ -212,6 +258,7 @@ class Bridge:
         self.args = args
         self.phone = None                 # 当前手机 WebSocket
         self.frame_q = queue.Queue(maxsize=2)
+        self._last_jpeg = None            # 最新一帧原始 JPEG，给浏览器预览用
         self.stats = {"fps": 0, "w": 0, "h": 0, "connected": False,
                       "rx_frames": 0, "audio_chunks": 0}
         self.running = True
@@ -249,7 +296,11 @@ class Bridge:
         if self.args.no_mic:
             return
         try:
-            self.player = PcmPlayer(PCM_RATE, virtual_mic=self.args.virtual_mic)
+            self.player = PcmPlayer(
+                PCM_RATE,
+                virtual_mic=self.args.virtual_mic,
+                monitor=getattr(self.args, "monitor", False),
+            )
         except Exception as e:
             print(f"  [麦克风] 初始化失败: {e}")
 
@@ -322,6 +373,7 @@ class Bridge:
         except Exception:
             return
         self.stats["rx_frames"] += 1
+        self._last_jpeg = jpeg
         h, w = frame.shape[:2]
         self.stats["w"], self.stats["h"] = w, h
 
@@ -401,11 +453,24 @@ class Bridge:
         """供自检 / 调试使用。"""
         return web.json_response(self.stats)
 
+    # ---------------- 浏览器预览（tkinter 不可用时的替代） ----------------
+    async def handle_preview(self, request):
+        return web.Response(text=_PREVIEW_HTML, content_type="text/html")
+
+    async def handle_frame(self, request):
+        jpeg = self._last_jpeg
+        if not jpeg:
+            return web.Response(status=503, text="还没有收到手机画面")
+        return web.Response(body=jpeg, content_type="image/jpeg",
+                            headers={"Cache-Control": "no-store"})
+
     def make_app(self):
         app = web.Application()
         app.router.add_get("/", self.handle_index)
         app.router.add_get("/ws", self.handle_ws)
         app.router.add_get("/stats", self.handle_stats)
+        app.router.add_get("/preview", self.handle_preview)
+        app.router.add_get("/frame.jpg", self.handle_frame)
         if STATIC_DIR.exists():
             app.router.add_static("/static", STATIC_DIR)
         return app
@@ -544,6 +609,11 @@ def main():
     ap.add_argument("--no-speaker", action="store_true", help="不把电脑声音传回手机")
     ap.add_argument("--virtual-mic", action="store_true",
                     help="把手机麦克风输出到 VB-Cable 虚拟声卡，供微信等软件当麦克风用")
+    ap.add_argument("--monitor", action="store_true",
+                    help="同时把手机麦克风放到本机扬声器（调试用；"
+                         "通话时开着会和手机麦克风形成回环，导致对方听到回声）")
+    ap.add_argument("--open-preview", action="store_true",
+                    help="启动后自动用浏览器打开预览页（tkinter 不可用时的替代）")
     args = ap.parse_args()
 
     ip = lan_ip()
@@ -588,8 +658,9 @@ def main():
         print(f"    adb reverse tcp:{args.port} tcp:{args.port}")
         print()
         print(f"  同一 WiFi 时可用: {url_lan}")
+        print(f"  浏览器看预览  : {url_local}/preview")
         print("-" * 66)
-        print("  按 Ctrl+C 或关闭预览窗口退出")
+        print("  按 Ctrl+C 退出")
         print()
         bridge.loop.run_forever()
 
@@ -597,8 +668,29 @@ def main():
     t.start()
     time.sleep(1.2)
 
+    if args.open_preview:
+        try:
+            import webbrowser
+            webbrowser.open(url_local + "/preview")
+        except Exception as e:
+            print(f"  [提示] 打开预览页失败: {e}")
+            print(f"         手动访问 {url_local}/preview 即可")
+
+    # tkinter 不是所有 Python 都带（本机这个 venv 就没有），缺了就自动降级，
+    # 绝不能因为这个让整个服务崩掉。
+    use_gui = not args.no_gui
+    if use_gui:
+        try:
+            import tkinter  # noqa: F401
+        except ImportError:
+            use_gui = False
+            print("  [提示] 当前 Python 没带 tkinter，开不了预览窗口。")
+            print("         不影响使用：手机画面照样进虚拟摄像头。")
+            print(f"         想看预览就用浏览器打开  {url_lan}/preview")
+            print()
+
     try:
-        if args.no_gui:
+        if not use_gui:
             while bridge.running:
                 time.sleep(1)
         else:
