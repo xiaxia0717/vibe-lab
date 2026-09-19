@@ -1,2 +1,0 @@
-﻿kill PID 15016 python
-after: port free

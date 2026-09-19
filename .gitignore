@@ -15,6 +15,10 @@ phone-cam-app/captures/
 *.exe
 *.zip
 
+# 调试脚本留下的日志
+kill_log.txt
+*.wav
+
 # WorkBuddy 私有数据
 .workbuddy-ai/
 

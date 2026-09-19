@@ -15,19 +15,32 @@
 ## 目录结构
 
 ```
-├── phone-cam-app/            手机端原生 App（Kotlin / CameraX）
-│   └── app/build/outputs/apk/debug/app-debug.apk     ← 安装包
-├── phone-as-webcam/          电脑端服务（Python）
-│   ├── server.py
-│   ├── static/index.html     （旧的浏览器方案，可不用）
-│   ├── 启动.bat              ← 双击启动
-│   └── .venv/                已装好依赖的虚拟环境
-├── drivers/                  驱动安装包
-│   └── VBCABLE/              虚拟声卡（已解压好）
-├── 安装OBS.bat               ← 装虚拟摄像头驱动
-├── 安装虚拟声卡.bat           ← 装虚拟麦克风驱动
-└── OBS-Studio-Installer.exe  OBS 安装包（152MB）
+├── phone-cam-app/                    手机端原生 App（Kotlin / CameraX）
+│   └── app/src/main/java/com/vibelab/phonecam/
+│       ├── MainActivity.kt           主界面 + 推流 + 屏幕常亮
+│       ├── StreamClient.kt           WebSocket 客户端（断线自动重连）
+│       ├── Discovery.kt              局域网自动发现（裸 UDP 47823）
+│       ├── SettingsActivity.kt       设置页
+│       └── Prefs.kt                  配置存储
+│
+├── phone-as-webcam/                  电脑端服务（Python）
+│   ├── server.py                     核心：虚拟摄像头 / 虚拟麦克风 / 声音回传
+│   ├── 启动.bat                      ← 仓库内启动脚本（等价于桌面的 1-启动服务.bat）
+│   ├── static/index.html             （旧的纯浏览器方案，已不用）
+│   └── .venv/                        已装好依赖的虚拟环境
+│
+├── release/                          打包好的安装包
+│   └── PhoneCam-v1.3.apk             ← 最新版（versionCode 3）
+│
+├── drivers/VBCABLE/                  虚拟声卡安装包
+├── 安装OBS.bat / 安装虚拟声卡.bat     驱动安装（桌面上有同名副本）
+├── 自检.bat                          环境自检（桌面 2-环境自检.bat 的仓库版）
+├── check_env.py                      自检逻辑
+└── OBS-Studio-Installer.exe          OBS 安装包（152MB，未入 git）
 ```
+
+> 桌面上还有一套给人用的脚本：`0-先看我.txt` / `1-启动服务.bat` / `2-环境自检.bat`
+> 和 `备用-驱动安装（一般用不到）/`。那些不在仓库里。
 
 ---
 
