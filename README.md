@@ -166,6 +166,7 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 | `--port` | 服务端口，默认 8080 |
 | `--virtual-mic` | 把手机麦克风输出到 VB-Cable（供其他软件当麦克风） |
 | `--monitor` | **额外**把手机麦克风放到本机扬声器（调试用，默认关） |
+| `--mic-gain N` | 麦克风音量增益，默认 `1.0`；对方说你声音小就调大（0.1-16） |
 | `--open-preview` | 启动后自动用浏览器打开预览页 |
 | `--no-mic` | 不输出手机麦克风声音 |
 | `--no-speaker` | 不把电脑声音传回手机 |

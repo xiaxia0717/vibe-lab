@@ -113,10 +113,11 @@ class PcmPlayer:
     """
 
     def __init__(self, rate: int = PCM_RATE, virtual_mic: bool = False,
-                 monitor: bool = False):
+                 monitor: bool = False, gain: float = 1.0):
         import sounddevice as sd
 
         self.rate = rate
+        self.gain = max(0.1, min(16.0, float(gain)))
         self.sinks = []
 
         if monitor:
@@ -200,6 +201,8 @@ class PcmPlayer:
 
     def push(self, pcm_i16: np.ndarray):
         f = pcm_i16.astype(np.float32) / 32768.0
+        if self.gain != 1.0:
+            f = np.clip(f * self.gain, -1.0, 1.0)
         for s in self.sinks:
             s.push(f)
 
@@ -300,7 +303,10 @@ class Bridge:
                 PCM_RATE,
                 virtual_mic=self.args.virtual_mic,
                 monitor=getattr(self.args, "monitor", False),
+                gain=getattr(self.args, "mic_gain", 1.0),
             )
+            if getattr(self.args, "mic_gain", 1.0) != 1.0:
+                print(f"  [麦克风] 音量增益 x{self.args.mic_gain:g}")
         except Exception as e:
             print(f"  [麦克风] 初始化失败: {e}")
 
@@ -614,6 +620,9 @@ def main():
                          "通话时开着会和手机麦克风形成回环，导致对方听到回声）")
     ap.add_argument("--open-preview", action="store_true",
                     help="启动后自动用浏览器打开预览页（tkinter 不可用时的替代）")
+    ap.add_argument("--mic-gain", type=float, default=1.0, metavar="N",
+                    help="手机麦克风的音量增益，默认 1.0；对方说你声音小就调大，"
+                         "比如 --mic-gain 2.5（范围 0.1-16）")
     args = ap.parse_args()
 
     ip = lan_ip()
