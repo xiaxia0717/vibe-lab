@@ -215,7 +215,7 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 ## 常见问题
 
 **App 显示"已断开"**
-- 确认 `启动.bat` 已经跑起来（预览窗口开着）。
+- 确认 `启动.bat` 已经跑起来（那个黑窗口还开着）。
 - 数据线重新插拔后，端口转发会失效，重跑一次 `启动.bat` 即可。
 
 **微信里找不到 OBS Virtual Camera**
@@ -271,3 +271,32 @@ set GRADLE_USER_HOME=%TEMP%\gradle-home
 ```
 
 > 注意：`GRADLE_USER_HOME` 必须指向可写目录，否则会报"拒绝访问"。
+
+---
+
+## 第三方组件与许可
+
+本仓库**自己的代码**是 MIT（见 `LICENSE`）。
+但里面打包了别人的东西，它们各有各的许可，**不适用 MIT**：
+
+### VB-Cable（虚拟声卡）· `drivers/VBCABLE/`
+
+- **作者**：Vincent Burel
+- **来源**：<https://vb-audio.com/Cable/>
+- **性质**：**donationware（捐赠软件）** —— 觉得好用请去官网支持作者
+- **许可要点**：允许**原样（AS IS）**复制分发、不得修改；
+  未经作者同意不得并入别的安装程序。
+  所以仓库里的安装包保持原封不动，`安装虚拟声卡.bat` 也只是
+  调起 VB-Audio 官方的安装程序（会弹 UAC），没有做任何包装。
+
+### OBS Studio（虚拟摄像头驱动）
+
+- **来源**：<https://obsproject.com/>
+- **许可**：GPL-2.0
+- 本项目**只用到它自带的虚拟摄像头驱动**。安装包未入库
+  （`OBS-Studio-Installer.exe` 被 `.gitignore` 排除，需要请去官网下载）。
+
+### 其它
+
+仓库里还有 `drift.html` / `aurora-wallpaper.html` 等早期练手项目，
+见 `README-old-projects.md`。

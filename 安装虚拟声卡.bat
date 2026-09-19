@@ -12,7 +12,9 @@ echo    装完后，微信 / 腾讯会议 等软件的「麦克风」列表里�
 echo    "CABLE Output" 设备。选中它，对方就能听到你手机的声音。
 echo.
 echo  说明：
-echo    1. 这个驱动免费（VB-Audio 出品）。
+echo    1. VB-Cable 由 Vincent Burel 制作，是 donationware（捐赠软件）。
+echo       官网 https://vb-audio.com/Cable/ ，觉得好用请去支持作者。
+echo       本脚本只是调起 VB-Audio 官方的安装程序，未对安装包做任何修改。
 echo    2. 需要管理员权限，马上会弹授权窗口，请点「是」。
 echo    3. 安装完成后**必须重启电脑**才能生效。
 echo.

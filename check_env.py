@@ -87,7 +87,8 @@ def main():
         print(f"{OK} OBS Studio 已安装 -> {obs_dir}")
     else:
         print(f"{NO} 未安装 OBS Studio")
-        print("       请双击桌面「1-安装虚拟摄像头.bat」")
+        print("       请双击桌面「备用-驱动安装（一般用不到）」里的")
+        print("       「安装虚拟摄像头（OBS）.bat」")
 
     cam_ok = False
     try:
@@ -122,7 +123,8 @@ def main():
             print('       在微信/会议软件里把「麦克风」选成 "CABLE Output"')
         else:
             print(f"{NO} 未找到 CABLE 设备")
-            print("       请双击桌面「2-安装虚拟麦克风.bat」，装完重启电脑")
+            print("       请双击桌面「备用-驱动安装（一般用不到）」里的")
+            print("       「安装虚拟麦克风（VB-Cable）.bat」，装完重启电脑")
             problems.append("虚拟声卡未安装（对方听不到手机麦克风）")
     except Exception as e:
         print(f"{NO} 查询失败: {e}")
@@ -149,7 +151,7 @@ def main():
         print("  全部就绪，可以正常使用了！")
         print("\n  使用流程：")
         print("    1. 手机插数据线（或连同一个 WiFi）")
-        print("    2. 双击桌面「4-启动服务.bat」")
+        print("    2. 双击桌面「1-启动服务.bat」")
         print("    3. 手机打开「手机摄像头」App，点「启动」")
         print("    4. 微信/会议软件里选：")
         print("         摄像头 -> OBS Virtual Camera")
