@@ -3,7 +3,9 @@ package com.vibelab.phonecam
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -19,6 +21,7 @@ import android.os.Vibrator
 import android.util.Log
 import android.util.Size
 import android.view.HapticFeedbackConstants
+import android.view.Surface
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AnimationUtils
@@ -61,6 +64,10 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
     private var client: StreamClient? = null
     private var cameraProvider: ProcessCameraProvider? = null
 
+    /** 留着引用，屏幕旋转时要改它们的 targetRotation。 */
+    private var previewUseCase: Preview? = null
+    private var analysisUseCase: ImageAnalysis? = null
+
     @Volatile private var running = false
     @Volatile private var micOn = true
     @Volatile private var speakerOn = true
@@ -74,9 +81,14 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
     private var reconnectTask: Runnable? = null
 
     private var targetFps = 24
-    private var lastFrameAt = 0L
     private var framesInWindow = 0
+    private var rawFrames = 0
     private var windowStart = 0L
+    private var encodeMsAcc = 0L
+
+    /** 下一帧最早可以发的时间（累积式限速，见 handleFrame）。 */
+    private var nextSendAt = 0L
+    private var lastRotationDeg = -1
     private val encoding = AtomicBoolean(false)
 
     private var audioRecord: AudioRecord? = null
@@ -139,6 +151,37 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
         if (!running) applyPrefs()
     }
 
+    @Suppress("DEPRECATION")
+    private fun displayRotation(): Int =
+        binding.previewView.display?.rotation
+            ?: windowManager.defaultDisplay?.rotation
+            ?: Surface.ROTATION_0
+
+    /**
+     * 把采集方向对齐当前屏幕方向。
+     *
+     * 手机横过来当摄像头用是常态 —— 方向不对，对方看到的画面就是歪的。
+     * 主界面已经不锁竖屏了，所以这里跟着屏幕走即可。
+     */
+    private fun applyTargetRotation() {
+        val rotation = displayRotation()
+        try {
+            previewUseCase?.targetRotation = rotation
+            analysisUseCase?.targetRotation = rotation
+            Log.i(TAG, "applyTargetRotation -> $rotation " +
+                    "(preview=${previewUseCase?.targetRotation} " +
+                    "analysis=${analysisUseCase?.targetRotation})")
+        } catch (e: Exception) {
+            Log.w(TAG, "设置采集方向失败: ${e.message}")
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Log.i(TAG, "onConfigurationChanged orientation=${newConfig.orientation}")
+        applyTargetRotation()
+    }
+
     private fun withTap(action: () -> Unit) {
         try {
             binding.root.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -193,6 +236,12 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
         // 旧的 SCREEN_DIM_WAKE_LOCK 在 Android 13 上已失效，
         // 屏幕一休眠 Activity 就 onStop，CameraX 跟着解绑 -> 画面直接断。
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // 重置限速状态，免得继承上次残留的截止时间
+        nextSendAt = 0L
+        windowStart = 0L
+        framesInWindow = 0
+        rawFrames = 0
+        encodeMsAcc = 0L
         binding.placeholder.visibility = View.GONE
         binding.btnStart.startAnimation(
             AnimationUtils.loadAnimation(this, R.anim.press)
@@ -412,6 +461,10 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
                     .build()
                     .also { it.setAnalyzer(analyzeExecutor) { p -> handleFrame(p) } }
 
+                previewUseCase = preview
+                analysisUseCase = analysis
+                applyTargetRotation()
+
                 val camSelector = CameraSelector.Builder()
                     .requireLensFacing(lensFacing)
                     .build()
@@ -445,21 +498,43 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
     private fun handleFrame(proxy: ImageProxy) {
         try {
             val now = System.currentTimeMillis()
-            if (now - lastFrameAt < 1000L / targetFps) return
-            lastFrameAt = now
+            rawFrames++
+            // 用「累积截止时间」限速，而不是「距上一帧不足 interval 就丢」。
+            // 相机出帧间隔约 33ms，而 24fps 的窗口是 41ms —— 用后者会把
+            // 每帧都判成"太早"，实际变成发一帧丢一帧，帧率被压到 15fps。
+            // 累积式允许偶尔补发，长期平均刚好落在目标帧率上。
+            val interval = 1000L / targetFps
+            if (now < nextSendAt) return
+            nextSendAt = maxOf(nextSendAt + interval, now)
 
             if (!running || !encoding.compareAndSet(false, true)) return
 
+            val deg = proxy.imageInfo.rotationDegrees
+            if (deg != lastRotationDeg) {
+                lastRotationDeg = deg
+                Log.i(TAG, "rotationDegrees -> $deg")
+            }
+
+            val t0 = System.currentTimeMillis()
             val jpeg = rgbaToJpeg(proxy)
+            encodeMsAcc += System.currentTimeMillis() - t0
             if (jpeg != null) client?.sendVideo(jpeg)
 
             framesInWindow++
             if (windowStart == 0L) windowStart = now
             if (now - windowStart >= 1000) {
-                val fps = framesInWindow
+                val sent = framesInWindow
+                val raw = rawFrames
+                val avgMs = if (sent > 0) encodeMsAcc.toDouble() / sent else 0.0
                 framesInWindow = 0
+                rawFrames = 0
+                encodeMsAcc = 0L
                 windowStart = now
-                mainHandler.post { binding.tvFps.text = "$fps fps" }
+                mainHandler.post { binding.tvFps.text = "$sent fps" }
+                // 诊断：raw = 相机实际出帧数，sent = 真正发出去的。
+                // 两者差距大说明限速/编码在拖；raw 本身就低说明是相机（暗光降帧）。
+                Log.i(TAG, "stats raw=$raw sent=$sent encode=" +
+                        String.format(java.util.Locale.US, "%.1f", avgMs) + "ms")
             }
         } catch (e: Exception) {
             Log.e(TAG, "帧处理异常", e)
@@ -469,12 +544,29 @@ class MainActivity : AppCompatActivity(), StreamClient.Listener {
         }
     }
 
+    /**
+     * 把一帧转成 JPEG。
+     *
+     * **必须按 `rotationDegrees` 旋转**：CameraX 的 ImageAnalysis 给的是
+     * 传感器原始方向的像素，不会替你转。忽略它的话，画面方向就只取决于
+     * 手机物理怎么摆 —— 竖着拿推出去的画面就是侧翻 90° 的。
+     */
     private fun rgbaToJpeg(proxy: ImageProxy): ByteArray? = try {
-        val bitmap = Bitmap.createBitmap(proxy.width, proxy.height, Bitmap.Config.ARGB_8888)
-        bitmap.copyPixelsFromBuffer(proxy.planes[0].buffer)
+        val src = Bitmap.createBitmap(proxy.width, proxy.height, Bitmap.Config.ARGB_8888)
+        src.copyPixelsFromBuffer(proxy.planes[0].buffer)
+
+        val deg = proxy.imageInfo.rotationDegrees
         val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
-        bitmap.recycle()
+        if (deg == 0) {
+            src.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+            src.recycle()
+        } else {
+            val matrix = Matrix().apply { postRotate(deg.toFloat()) }
+            val rotated = Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
+            src.recycle()
+            rotated.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+            rotated.recycle()
+        }
         out.toByteArray()
     } catch (e: Exception) {
         Log.e(TAG, "JPEG 编码失败", e)

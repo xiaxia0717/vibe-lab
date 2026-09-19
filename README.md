@@ -168,6 +168,23 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 
 ---
 
+## 手机怎么摆？
+
+**横竖都行，画面会跟着手机的实际朝向走，永远是正的。**
+
+- 手机横着放 → 推流是 1280×720（横屏，推荐，符合 webcam 的常规比例）
+- 手机竖着放 → 推流是 720×1280（竖屏）
+- **推流中途转手机也没事**，分辨率会实时切换，连接不断
+
+> 实现上要同时做两件事，缺一不可：
+> 1. 主界面**不锁屏幕方向**（`AndroidManifest` 里不能写 `screenOrientation="portrait"`），
+>    否则 `targetRotation` 永远停在竖屏，横着放画面会侧翻 90°；
+> 2. 编码前**必须按 `ImageProxy.imageInfo.rotationDegrees` 旋转像素**。
+>    CameraX 的 `ImageAnalysis` 给的是**传感器原始方向**的数据，不会替你转 ——
+>    忽略它的话，画面方向就只取决于手机物理怎么摆，竖着拿推出去就是歪的。
+
+---
+
 ## 电脑端服务参数
 
 ```bash
@@ -255,6 +272,13 @@ D:\leidian\LDPlayer14\adb.exe install -r phone-cam-app\app\build\outputs\apk\deb
 - 手机端：CameraX 采集 + `Bitmap.compress` 编码 JPEG；`AudioRecord` 采集；`AudioTrack` 播放
 - 电脑端：aiohttp 收流；Pillow 解码；pyvirtualcam 输出虚拟摄像头；sounddevice 输出音频；soundcard 捕获系统声音
 - 数据只在你的手机和电脑之间直连，不经过任何外部服务器
+- **帧率限速用「累积截止时间」**，不是「距上一帧不足间隔就丢」。
+  后者在相机出帧间隔（约 33ms）短于限速窗口（24fps 对应 41ms）时，
+  会把**每一帧**都判成"太早"而丢掉，实际变成发一帧丢一帧，
+  帧率被压到 15fps。改成累积式后实测从 16-18fps 提到 **24-26fps**。
+- App 每秒打一条 `stats raw=相机出帧 sent=实际发送 encode=编码耗时` 日志，
+  排查帧率问题直接看它：`raw` 低 = 相机端（如暗光降帧）；
+  `sent` 远低于 `raw` = 限速或编码在拖。
 
 ---
 
