@@ -62,18 +62,24 @@ SoC 降频 →  温度标红告警
 
 1. 电脑和随身 WiFi 在同一个网段
 2. 双击 `face-control.bat`
-3. 选 `1` 启动
+3. 选 `1`（推荐）
 
-它会推 `face2.py` 到设备 `/mnt/data/` 并跑起来，同时弹一个**最小化的 adb 窗口**——
-**这个窗口别关**，它是保活的命根子（`adb shell` 的前台会话一断，设备上的进程就被回收）。
+选 `1` 会开一个 **`face-keeper.bat` 窗口**：它推 `face2.py` 到设备、跑起来，
+**并且会在设备重启或链路断开时自动重连、自动重启**。
+
+> ⚠️ **那个窗口别关。** `adb shell` 的前台会话一断，设备上的进程就被回收 ——
+> 所以保活靠的是这个窗口本身。关了它就等于停了表情屏。
+
+选 `2` 是"一次性启动"，不会自动重启。
 
 | 菜单 | 作用 |
 |---|---|
-| `1` Start | 启动表情屏 |
-| `2` Stop | 停止，并把原厂时钟画面还原回去 |
-| `3` Status | 看进程、背光、电量、各热区温度、CPU 频率、修复次数 |
-| `4` Fix | 黑屏急救 |
-| `5` Exit | 退出 |
+| `1` Start（keeper） | 自动重连 + 自动重启，长期挂着用这个 |
+| `2` Start（one-shot） | 只启动一次，链路断了不会自愈 |
+| `3` Stop | 停止，并把原厂时钟画面还原回去 |
+| `4` Status | 看进程、背光、电量、各热区温度、CPU 频率、WiFi 客户端、修复次数 |
+| `5` Fix | 黑屏急救 |
+| `6` Exit | 退出 |
 
 ### 依赖
 
@@ -156,13 +162,20 @@ samples=548  overlay_samples=1  worst_black=1742
 
 - **`adb shell "cmd &"` 起的后台进程必死**，`setsid` / `nohup` 都救不回来。
   常驻只有两条路：PC 端挂住 adb 会话，或者 `mount -o remount,rw /` 后写 init 脚本。
-- **`pkill -f` 会杀掉自己**。清理和启动必须拆成两次 adb 调用，
-  并且用 `[f]ace2.py` 这种写法规避自匹配。
+- **`pkill -f` 会杀掉自己**。清理和启动必须拆成两次 adb 调用。
+- **⚠️ 杀进程的模式要写成 `[f]ace`，不能写 `[f]ace.py`** ——
+  后者<b>匹配不上 `face2.py`</b>：模式里的 `.` 得先吃掉那个 `2`，后面就没字符给 `p` 了。
+  一开始的 `screen-fix.bat` 就踩了这个，急救按钮会**静默失效**
+  （报告"已停止"，但进程还活着）。`[f]ace` 两个版本都能杀，且仍然不会误杀自己。
 - **`fylog` 的 VUPDATE 记录，标记行和数据行不在同一行**。
   而且日志是边写边读的，最新那条通常只写了一半 ——
   要往回找最后一条**完整**的（判断依据：含 `wifinum` 字段）。
+- **`charge:` 会被 `bat charge:33122` 抢先命中**，得专门找 `charge:"`。
 - **BusyBox 没有 `head -c` / `timeout`**，用 `sed -n '1,60p'`。
 - **`cmd.exe` 在这台机器上从 Bash / PowerShell 都调不起来**（安全策略），改用 .NET Process API。
+- **别从网上下 platform-tools 到 Temp 里跑** —— Windows 应用控制策略会拦掉新下载的
+  未签名 exe，跑起来 exit code 127 且**没有任何输出**（连 `adb version` 都空）。
+- **`load average` 会骗人**：实测 load 7.4 但 CPU 空闲 78%，卡的是 D 状态 I/O。
 
 ---
 
@@ -188,7 +201,8 @@ samples=548  overlay_samples=1  worst_black=1742
 | 文件 | 说明 |
 |---|---|
 | `face2.py` | 表情屏本体，单文件零依赖，763 行 |
-| `face-control.bat` | Windows 控制面板 |
+| `face-keeper.bat` | 保活 + 自动重连 + 自动重启（推荐入口） |
+| `face-control.bat` | Windows 控制面板（启动 / 停止 / 状态 / 急救） |
 | `screen-fix.bat` | 黑屏急救（独立于控制面板） |
 | `optimization-report.html` | v1 → v2 的完整优化报告（问题定位 + 实测数据） |
 | `preview-*.png` | 各状态预览（`live-device` 是真机截屏） |

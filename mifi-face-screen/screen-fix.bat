@@ -1,6 +1,10 @@
 @echo off
 title Screen Fix  -  black screen recovery
-set ADB=D:\leidian\LDPlayer14\adb.exe
+setlocal
+set ADB=
+if exist "D:\leidian\LDPlayer14\adb.exe" set ADB=D:\leidian\LDPlayer14\adb.exe
+if "%ADB%"=="" for %%i in (adb.exe) do if not "%%~$PATH:i"=="" set ADB=%%~$PATH:i
+if "%ADB%"=="" (echo   [X] adb.exe not found. & pause & exit /b 1)
 set T=192.168.0.1:5555
 set BL=/sys/devices/platform/soc/soc:ap-apb/24700000.spi/spi_master/spi0/spi0.0/bl_gpio
 
@@ -13,8 +17,12 @@ echo.
 "%ADB%" start-server >nul 2>&1
 "%ADB%" connect %T%
 
-echo   [1/4] stopping face.py and resuming lcd ...
-"%ADB%" -s %T% shell "pkill -f '[f]ace.py'; kill -CONT $(pidof lcd)"
+rem NOTE: the kill pattern is [f]ace (not [f]ace.py) on purpose.
+rem [f]ace.py does NOT match "face2.py" -- the '.' has to eat the '2',
+rem which leaves nothing for the 'p'. Using [f]ace covers both versions
+rem and still cannot match its own command line.
+echo   [1/4] stopping the face screen and resuming lcd ...
+"%ADB%" -s %T% shell "pkill -f '[f]ace'; kill -CONT $(pidof lcd)"
 timeout /t 2 >nul
 
 echo   [2/4] restoring the clock picture ...
@@ -27,6 +35,8 @@ timeout /t 1 >nul
 
 echo   [4/4] checking ...
 echo.
+echo   --- face screen (should be empty) ---
+"%ADB%" -s %T% shell "ps | grep '[f]ace'"
 echo   --- lcd process (S = running, T = PAUSED) ---
 "%ADB%" -s %T% shell "ps | grep '[l]cd'"
 echo   --- backlight (1 = on, 0 = dark) ---
