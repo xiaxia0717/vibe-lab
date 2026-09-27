@@ -173,8 +173,14 @@ v1 没有任何应对，只能等自己下一次刷新（1 秒后）才盖回去
 <tr><td class="c mono">1</td><td class="c mono">21:33:59</td><td class="c mono">—</td><td>进程启动后第一次</td></tr>
 <tr><td class="c mono">2</td><td class="c mono">21:35:00</td><td class="c mono">61 s</td><td>原厂时钟的周期</td></tr>
 <tr><td class="c mono">3</td><td class="c mono">21:35:59</td><td class="c mono">59 s</td><td>原厂时钟的周期</td></tr>
+<tr><td class="c mono">4</td><td class="c mono">21:38:00</td><td class="c mono warn">121 s</td><td>21:37 那次被常规渲染顺手盖掉了，探测没轮上</td></tr>
+<tr><td class="c mono">5</td><td class="c mono">21:39:00</td><td class="c mono">60 s</td><td>原厂时钟的周期</td></tr>
+<tr><td class="c mono">6</td><td class="c mono">21:40:00</td><td class="c mono">60 s</td><td>原厂时钟的周期</td></tr>
 </table>
-<p><code>/tmp/face_err.log</code> 全程为空。</p>
+<p>那个 121 秒的间隔不是漏修 —— 是 21:37 那次时钟刚好落在<b>常规渲染</b>的那一瞬间，
+被渲染本身盖掉了，所以探测环节没机会记一笔。两条路都是好的：
+<b>要么常规渲染顺手盖掉，要么探测在 0.125 秒内盖掉</b>，不存在放任不管的情况。
+<code>/tmp/face_err.log</code> 全程为空。</p>
 
 <p>再换个角度交叉验证：用<b>另一个独立进程</b>以 0.15 秒的间隔连读 95 秒 framebuffer，
 数"脸部区域出现纯黑"的采样点：</p>
