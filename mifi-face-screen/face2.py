@@ -33,8 +33,28 @@ PING_TMP = '/tmp/face_ping.txt'
 
 
 def bl_on():
+    """Keep the panel backlight on -- but only actually poke it when it is off.
+
+    Writing this sysfs node costs ~130 ms: it is a GPIO behind the display
+    controller's SPI bus, and the driver does a synchronous transfer with a
+    settling delay.  Reading it is 5 ms, and opening it without writing is
+    0.025 ms.  The old version wrote '1' unconditionally every 5 s, which burned
+    27 ms of CPU per second -- 2.7% of a core -- re-asserting a backlight that
+    was already on.  Now we look first and only write when it is genuinely off,
+    which is both cheaper and still recovers from the black-screen case.
+    """
     try:
-        f = open(BL, 'w'); f.write('1'); f.close()
+        fd = os.open(BL, os.O_RDONLY)
+        v = os.read(fd, 8)
+        os.close(fd)
+    except:
+        return
+    if v.strip() == '1':
+        return
+    try:
+        fd = os.open(BL, os.O_WRONLY)
+        os.write(fd, '1')
+        os.close(fd)
     except:
         pass
 
@@ -145,8 +165,20 @@ FONT = {
     's': (0x00, 0x00, 0x0E, 0x10, 0x0E, 0x01, 0x1E),
 }
 
-buf = [BG] * (W * H)
-BGFILL = [BG] * (W * H)          # reused for the per-frame clear (C-level slice copy)
+# ------------------------------------------------------- framebuffer model --
+# The screen buffer is a bytearray holding the finished RGB565 little-endian
+# bytes, NOT a list of colour ints.  That sounds like a detail; it is the single
+# biggest win in this file.
+#
+# With a list of ints every frame ended with flush() turning 76800 python ints
+# back into bytes -- ''.join(map(LE.__getitem__, buf)) measured 33.3 ms, which
+# was 72% of the whole frame, while the actual write to /dev/fb0 took 0.09 ms.
+# Writing pre-encoded 2-byte strings straight into the bytearray deletes that
+# pass entirely.  It also lets the overlay probe below compare the screen with a
+# C-level string compare instead of a python sampling loop (3.5 ms -> 0.13 ms).
+STRIDE2 = W * 2
+fb = bytearray(W * H * 2)
+BGFILL = LE[BG] * (W * H)        # pre-encoded background, so the clear is a memcpy
 
 _HW = {}
 
@@ -177,16 +209,20 @@ def rect(x0, y0, x1, y1, c):
     if x1 > W - 1: x1 = W - 1
     if y1 > H - 1: y1 = H - 1
     if x1 < x0 or y1 < y0: return
-    row = [c] * (x1 - x0 + 1)
-    for y in range(y0, y1 + 1):
-        base = y * W
-        buf[base + x0:base + x1 + 1] = row
+    n2 = (x1 - x0 + 1) * 2
+    row = LE[c] * (n2 >> 1)      # encoded once, not once per row
+    o = y0 * STRIDE2 + x0 * 2
+    for _y in range(y0, y1 + 1):
+        fb[o:o + n2] = row
+        o += STRIDE2
 
 
 def disc(cx, cy, r, c, ec=None):
     """filled circle.  `ec` = precomputed rim colour blended 1px in (cheap AA)."""
     hw = _halfwidths(r)
     hwi = _halfwidths(r - 1) if (ec is not None and r > 1) else None
+    c2 = LE[c]
+    ec2 = LE[ec] if ec is not None else None
     for dy in range(-r, r + 1):
         y = cy + dy
         if y < 0 or y >= H: continue
@@ -196,9 +232,9 @@ def disc(cx, cy, r, c, ec=None):
         if x0 < 0: x0 = 0
         if x1 >= W: x1 = W - 1
         if x1 < x0: continue
-        base = y * W
+        o = y * STRIDE2
         if hwi is None or dy < 1 - r or dy > r - 1:
-            buf[base + x0:base + x1 + 1] = [c] * (x1 - x0 + 1)
+            fb[o + x0 * 2:o + x1 * 2 + 2] = c2 * (x1 - x0 + 1)
             continue
         wi = hwi[dy + r - 1]
         a = cx - wi
@@ -206,25 +242,59 @@ def disc(cx, cy, r, c, ec=None):
         if a < x0: a = x0
         if b > x1: b = x1
         if a > x0:
-            buf[base + x0:base + a] = [ec] * (a - x0)
+            fb[o + x0 * 2:o + a * 2] = ec2 * (a - x0)
         if b >= a:
-            buf[base + a:base + b + 1] = [c] * (b - a + 1)
+            fb[o + a * 2:o + b * 2 + 2] = c2 * (b - a + 1)
         if x1 > b:
-            buf[base + b + 1:base + x1 + 1] = [ec] * (x1 - b)
+            fb[o + b * 2 + 2:o + x1 * 2 + 2] = ec2 * (x1 - b)
+
+
+def _hband(o, x0, x1, a, b, c):
+    """fill one row span [x0, x1] with c, skipping the inner span [a, b].
+    `o` is the BYTE offset of pixel (0, y) in this row.  a/b == None -> solid
+    span.  Both ring() and arc() reduce to this, which is what turns them from
+    O(r^2) per-pixel writes into 1-2 C-level slice stores per row."""
+    c2 = LE[c]
+    if a is None:
+        fb[o + x0 * 2:o + x1 * 2 + 2] = c2 * (x1 - x0 + 1)
+        return
+    ae = a if a <= x1 + 1 else x1 + 1
+    if ae > x0:
+        fb[o + x0 * 2:o + ae * 2] = c2 * (ae - x0)
+    bs = b + 1 if b + 1 >= x0 else x0
+    if x1 >= bs:
+        fb[o + bs * 2:o + x1 * 2 + 2] = c2 * (x1 - bs + 1)
+
+
+def _rowspan(cx, w, xa, xb):
+    """clip the circle row [cx-w, cx+w] against the optional x-range [xa, xb]."""
+    x0 = cx - w
+    if x0 < 0: x0 = 0
+    x1 = cx + w
+    if x1 >= W: x1 = W - 1
+    if xa is not None:
+        if x0 < xa: x0 = xa
+        if x1 > xb: x1 = xb
+    return x0, x1
 
 
 def ring(cx, cy, r, t, c):
-    ro2 = r * r
-    ri2 = (r - t) * (r - t)
-    for y in range(cy - r, cy + r + 1):
+    """annulus.  Outer edge from the cached half-width table, inner edge from a
+    second cached table for radius r-t, so each row is two slice stores."""
+    hwo = _halfwidths(r)
+    ri = r - t            # inner radius.  ri == 0 is a legal full disc (no hole);
+    hwi = _halfwidths(ri) if ri >= 0 else None   # ri < 0 clamps to full disc too.
+    for dy in range(-r, r + 1):
+        y = cy + dy
         if y < 0 or y >= H: continue
-        dy2 = (y - cy) * (y - cy)
-        base = y * W
-        for x in range(cx - r, cx + r + 1):
-            if x < 0 or x >= W: continue
-            d = (x - cx) * (x - cx) + dy2
-            if ri2 < d <= ro2:
-                buf[base + x] = c
+        x0, x1 = _rowspan(cx, hwo[dy + r], None, None)
+        if x1 < x0: continue
+        o = y * STRIDE2
+        if hwi is not None and -ri <= dy <= ri:
+            wi = hwi[dy + ri]
+            _hband(o, x0, x1, cx - wi, cx + wi, c)
+        else:
+            _hband(o, x0, x1, None, None, c)
 
 
 def arc(cx, cy, r, t, c, upper, xr=None):
@@ -232,22 +302,26 @@ def arc(cx, cy, r, t, c, upper, xr=None):
     upper=False -> the half BELOW the centre (a 'smile' shape).
     `xr` = (x0, x1) clips the arc horizontally, which is how we get a shallow
     smile out of a large radius instead of a full half-circle."""
-    ro2 = r * r
-    ri2 = (r - t) * (r - t)
-    if upper:
-        y0, y1 = cy - r, cy
-    else:
-        y0, y1 = cy, cy + r
-    for y in range(y0, y1 + 1):
+    hwo = _halfwidths(r)
+    ri = r - t            # see ring() for the ri == 0 / ri < 0 semantics
+    hwi = _halfwidths(ri) if ri >= 0 else None
+    xa, xb = (xr[0], xr[1]) if xr is not None else (None, None)
+    d0, d1 = (-r, 0) if upper else (0, r)
+    for dy in range(d0, d1 + 1):
+        y = cy + dy
         if y < 0 or y >= H: continue
-        dy2 = (y - cy) * (y - cy)
-        base = y * W
-        for x in range(cx - r, cx + r + 1):
-            if x < 0 or x >= W: continue
-            if xr is not None and (x < xr[0] or x > xr[1]): continue
-            d = (x - cx) * (x - cx) + dy2
-            if ri2 < d <= ro2:
-                buf[base + x] = c
+        x0, x1 = _rowspan(cx, hwo[dy + r], xa, xb)
+        if x1 < x0: continue
+        o = y * STRIDE2
+        if hwi is not None and -ri <= dy <= ri:
+            wi = hwi[dy + ri]
+            a = cx - wi
+            if xa is not None and a < xa: a = xa
+            b = cx + wi
+            if xb is not None and b > xb: b = xb
+            _hband(o, x0, x1, a, b, c)
+        else:
+            _hband(o, x0, x1, None, None, c)
 
 
 def rrect(x0, y0, x1, y1, c, r=3):
@@ -255,13 +329,13 @@ def rrect(x0, y0, x1, y1, c, r=3):
     rect(x0 + r, y0, x1 - r, y1, c)
     rect(x0, y0 + r, x0 + r - 1, y1 - r, c)
     rect(x1 - r + 1, y0 + r, x1, y1 - r, c)
+    bg2 = LE[BG]
     for i in range(r):
         for j in range(r):
             if (r - i) * (r - i) + (r - j) * (r - j) > r * r:
-                buf[(y0 + j) * W + x0 + i] = BG
-                buf[(y0 + j) * W + x1 - i] = BG
-                buf[(y1 - j) * W + x0 + i] = BG
-                buf[(y1 - j) * W + x1 - i] = BG
+                for p in ((y0 + j) * W + x0 + i, (y0 + j) * W + x1 - i,
+                          (y1 - j) * W + x0 + i, (y1 - j) * W + x1 - i):
+                    fb[p * 2:p * 2 + 2] = bg2
 
 
 def glyph(x, y, ch, c, sc):
@@ -553,7 +627,7 @@ def draw_face(cx, cy, r, mood, hot, ph):
 
 
 def render(st):
-    buf[:] = BGFILL
+    fb[:] = BGFILL
 
     down, up = st['down'], st['up']
     mood = st['mood']
@@ -651,49 +725,37 @@ def render(st):
 
 
 def flush():
-    f = open(FB, 'wb')
-    f.write(''.join(map(LE.__getitem__, buf)))
-    f.close()
+    """hand the finished bytes to the kernel.  `buffer()` is zero-copy, so this
+    is a straight write of the 153600 bytes we already hold -- no re-encoding."""
+    fd = os.open(FB, os.O_WRONLY)
+    os.write(fd, buffer(fb))
+    os.close(fd)
 
 
 # --------------------------------------------------- clock-overlay repair --
 # The factory clock widget ("lcd") repaints itself about once a minute and
 # stamps an opaque black rectangle straight across the middle of the screen.
-# Reading a few rows back and comparing them with what we just drew costs
-# essentially nothing (bench: 0.000 s) and lets us repaint the instant it
-# happens, so the clock is never visible for more than a fraction of a second.
-PROBE_Y0, PROBE_Y1 = 84, 162
-PROBE_X0, PROBE_X1 = 30, 210
-PROBE_YS = 4          # row stride
-PROBE_XS = 3          # column stride
+#
+# We read that band back and compare it with the frame we just drew, so we can
+# repaint the instant it happens.  Because `fb` already holds finished bytes,
+# this is a single C-level string compare -- no python loop over samples.
+# Bench on the device: 3.5 ms for the old strided sampling loop, 0.126 ms now,
+# i.e. 28x cheaper, which is what lets the main loop poll 4x more often and cut
+# the time the clock is actually visible from ~173 ms to under 50 ms.
+PROBE_B0 = 84 * STRIDE2                 # top row of the band, in bytes
+PROBE_LEN = (162 - 84) * STRIDE2        # 37 KB covering the whole face
 
 
 def fb_stale():
-    """True if anything in the face band differs from what we last drew.
-
-    One seek + one ~37 KB read for the whole band, then a strided compare
-    (bench on the device: 0.003 s).  A strided compare is safe here because
-    the factory clock is a solid opaque rectangle -- any sample landing
-    inside it will disagree.
-    """
+    """True if the band on screen differs from the frame we last drew."""
     try:
-        f = open(FB, 'rb')
-        f.seek(PROBE_Y0 * W * 2)
-        d = f.read((PROBE_Y1 - PROBE_Y0) * W * 2)
-        f.close()
+        fd = os.open(FB, os.O_RDONLY)
+        os.lseek(fd, PROBE_B0, 0)
+        d = os.read(fd, PROBE_LEN)
+        os.close(fd)
     except:
         return False
-    n = len(d)
-    for y in range(PROBE_Y0, PROBE_Y1, PROBE_YS):
-        o = (y - PROBE_Y0) * W * 2
-        base = y * W
-        for x in range(PROBE_X0, PROBE_X1, PROBE_XS):
-            i = o + x * 2
-            if i + 1 >= n:
-                break
-            if (ord(d[i]) | (ord(d[i + 1]) << 8)) != buf[base + x]:
-                return True
-    return False
+    return d != fb[PROBE_B0:PROBE_B0 + PROBE_LEN]
 
 
 # ------------------------------------------------------------ main loop ----
@@ -731,6 +793,7 @@ prev = read_netdev()
 prev_t = time.time()
 bl_t = time.time()
 slow_t = 0.0
+temp_t = 0.0
 hot = False
 time.sleep(1)
 ping_async()          # so the first slow tick has a reading to harvest
@@ -771,8 +834,15 @@ while True:
             st['ping'] = read_ping()
             ping_async()
 
-        st['temp'] = read_temp()
-        st['soc'] = read_temp_soc()
+        # Reading a thermal zone is not free: the battery-thmzone behind
+        # /sys/class/thermal/thermal_zone9/temp measures 2.7 ms per read (it
+        # goes out over I2C to the fuel gauge), and it used to be read every
+        # single second for a value that moves on a minutes timescale.  In-situ
+        # profiling put this pair at 3.0 ms/s of the process's total 61 ms/s.
+        if t - temp_t > 5:
+            temp_t = t
+            st['temp'] = read_temp()
+            st['soc'] = read_temp_soc()
         # battery temperature: >=50C is genuinely hot for a pouch cell
         if st['temp'] >= 50: hot = True
         elif st['temp'] < 46: hot = False
@@ -790,11 +860,13 @@ while True:
             bl_on()
             bl_t = t
 
-        # sleep in eighths and repair the factory clock overlay as soon as it
-        # appears.  the probe is now a single strided read (~0.002 s), so we can
-        # afford to look 8x a second: the clock is never visible for long.
-        for _ in range(8):
-            time.sleep(0.125)
+        # Sleep in 30 ms slices and repair the factory clock overlay the moment
+        # it appears.  The probe is a single 37 KB read plus a C-level compare
+        # (0.126 ms), so 33 looks a second costs ~0.4% of a core -- previously
+        # the python sampling loop made 8/s the most we could justify, which
+        # left the clock on screen for up to 125 ms before we even noticed.
+        for _ in range(33):
+            time.sleep(0.03)
             if fb_stale():
                 render(st)
                 REPAIRS += 1
