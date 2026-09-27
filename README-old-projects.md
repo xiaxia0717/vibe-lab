@@ -80,6 +80,24 @@ python -m http.server 8000
 
 ---
 
+## 其他项目
+
+### [随身 WiFi 网速表情屏](mifi-face-screen/)
+
+把一台 5G 随身 WiFi 自带的小 LCD（240×320）变成实时网速表情屏。
+网速快就笑，卡了就哭，没流量就打瞌睡，旁边还显示信号格数和 SoC 温度。
+
+纯 Python 2.7、零依赖，直接往 `/dev/fb0` 画。设备是 BusyBox Linux（不是 Android），
+`adb connect` 免密拿 root。README 里记了四个踩过的坑，包括
+「`adb shell` 启动的后台进程必死」和「`kill -STOP` 原厂 UI 会导致黑屏」。
+
+### [Windows 无线网卡调优脚本](windows-wifi-tweaks/)
+
+连随身 WiFi 网速不稳时顺手调的网卡高级属性：关 MIMO 省电、开吞吐增强、
+降低漫游积极性、优先 5GHz。右键以管理员身份运行。
+
+---
+
 ## 开源协议
 
 [MIT](LICENSE) © 2026 xiaxia0717
