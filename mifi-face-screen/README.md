@@ -1,155 +1,200 @@
-# 随身 WiFi 网速表情屏
+# 网速表情屏 · MiFi Face Screen
 
-把一台**随身 WiFi（5G MiFi）自带的小 LCD** 变成实时网速表情屏。
+把一台 **Unisoc UDX710 随身 WiFi**（展锐 5G 方案，非 Android）上那块 240×320 的小屏，
+变成一块会跟着网速变表情的实时仪表盘。
 
-屏幕上的脸会跟着网速变：
+```
+网速快  →  闭眼大笑        😄
+网速正常 →  微笑            🙂
+网速慢  →  皱眉 + 泪滴      😢
+没流量  →  睡着了 + Z z     😴
+机器过热 →  脸变红 + 冒汗    🥵
+SoC 降频 →  温度标红告警
+```
 
-| 状态 | 触发条件 | 表情 |
-| --- | --- | --- |
-| 😴 瞌睡 | 上下行都 < 0.05 Mbps | 闭眼 + 飘 Z |
-| 😢 难过 | 下行 < 2 Mbps | 含泪滴 |
-| 🙂 平静 | 下行 2 ~ 10 Mbps | 微笑 |
-| 😄 开心 | 下行 ≥ 10 Mbps | 大笑 |
-
-屏幕还带：左上角 5G 信号格数、右上角 SoC 温度、中间实时速率、底部上下行箭头 + 速率历史柱状图。
-
-![瞌睡](preview-idle.png)
-![平静](preview-active.png)
+![真机截屏](preview-live-device.png)
 
 ---
 
-## 跑在什么设备上
+## 为什么会有这个
 
-一台国产 5G 随身 WiFi，摸出来的底细：
+原厂 UI 就是**一块黑底白字的时钟**，而且每分钟重绘一次自己：
 
-- SoC：**Unisoc UDX710**（展锐 5G 方案），204MB RAM
-- 系统：**BusyBox Linux 4.14.98 aarch64**（Yocto sumo），不是 Android
-- LCD：`/dev/fb0`，**240×320，RGB565，stride 480**，全屏 153600 字节
-- 原厂 UI：`/usr/bin/lcd -platform linuxfb`（Qt 写的时钟界面），启动脚本 `/etc/init.d/lcd-init`
-- **`adb connect 192.168.0.1:5555` 免认证直接给 root**（uid=0）
+![原厂 UI](preview-factory-clock.png)
 
-`face.py` 只用设备自带 Python 2.7 的 `os / sys / time / struct / signal`，
-**零第三方依赖**。设备的 Python 是精简版，**没有 array / math / mmap / base64**，
-所以代码里：画圆用 `dx²+dy²<=r²` 避开 math，打包像素用
-`''.join([chr(v&255)+chr(v>>8) for v in buf])` 避开 array。
+它重绘时会先铺一块**不透明黑矩形**再写白字，这块黑矩形正好横穿屏幕中部。
+所以你在表情屏上会看到"脸时不时被切掉一块"——这就是那块黑。
+
+这个项目要解决的核心问题，就是**怎么在不杀死原厂进程的前提下把屏幕抢回来**。
 
 ---
 
-## 怎么跑
+## 它显示什么
 
-电脑上装好 adb，把 `face-control.bat` 里的 `ADB` 路径改成你自己的，然后双击：
+| 位置 | 内容 | 数据来源 |
+|---|---|---|
+| 状态栏左 | 信号格 + `5G N41` | `fylog` → `signal:` / `nettype:` / `bsi:` |
+| 状态栏右 | ⚡充电 + 电池图标 + `29%` | `/sys/class/power_supply/sc27xx-fgu/` |
+| 中间 | 表情脸 | 下载速率 + 电池温度 |
+| 大数字 | `3.16` MBPS | `/proc/net/dev` → `sipa_eth0` 计数差 |
+| 信息行 | ↑上行 ↓下行 · 设备数 · 温度 | `wificlients` / 热区 |
+| 底部 | 46 根柱状图 | 最近约 46 秒速率历史（对数刻度） |
 
-```
-1 . Start   启动表情屏（会挂一个最小化的 adb 窗口）
-2 . Stop    停止，还原原厂时钟界面
-3 . Status  看当前状态
-4 . Fix Screen   黑屏 / 按键失灵时的一键急救
-```
+温度位在 SoC ≥ 68 °C 时会从 `46C` 变成 `46/77C` 并标红 ——
+设备的被动降频线是 **70 °C**，而 SoC 实测常年 72–77 °C。
+原厂界面只显示电池温度（46 °C），所以**从界面上永远看不出 SoC 已经烫了**。
 
-**Start 之后不要关那个最小化的 adb 窗口** —— 它就是表情屏的命。
+---
 
-不想开菜单也行：
+## 各状态外观
 
-```bash
-# 启动（这条会一直阻塞，保持它别关）
-adb -s 192.168.0.1:5555 shell "python /mnt/data/face.py"
+| 空闲 | 慢 | 正常 | 快 |
+|---|---|---|---|
+| ![](preview-idle.png) | ![](preview-slow.png) | ![](preview-normal.png) | ![](preview-fast.png) |
 
-# 停止
-adb -s 192.168.0.1:5555 shell "pkill -f '[f]ace.py'; kill -CONT $(pidof lcd)"
+| 弱信号 / 低电量 | 电池过热 | 极速 | SoC 降频 |
+|---|---|---|---|
+| ![](preview-weak-signal.png) | ![](preview-battery-hot.png) | ![](preview-max-speed.png) | ![](preview-soc-throttle.png) |
+
+---
+
+## 怎么用
+
+1. 电脑和随身 WiFi 在同一个网段
+2. 双击 `face-control.bat`
+3. 选 `1` 启动
+
+它会推 `face2.py` 到设备 `/mnt/data/` 并跑起来，同时弹一个**最小化的 adb 窗口**——
+**这个窗口别关**，它是保活的命根子（`adb shell` 的前台会话一断，设备上的进程就被回收）。
+
+| 菜单 | 作用 |
+|---|---|
+| `1` Start | 启动表情屏 |
+| `2` Stop | 停止，并把原厂时钟画面还原回去 |
+| `3` Status | 看进程、背光、电量、各热区温度、CPU 频率、修复次数 |
+| `4` Fix | 黑屏急救 |
+| `5` Exit | 退出 |
+
+### 依赖
+
+- `adb`（脚本会自动找 `D:\leidian\LDPlayer14\adb.exe`，找不到就找 PATH）
+- 设备端需要开 ADB over TCP（`adb connect 192.168.0.1:5555`，免认证 root）
+- 设备端 Python 2.7（系统自带，**不需要装任何东西**）
+
+---
+
+## 两个模式
+
+| | 默认（共存） | `--own`（独占） |
+|---|---|---|
+| 原厂 `lcd` 进程 | 不动 | `kill -STOP` 冻住 |
+| 黑块 | 每分钟最多闪 **0.125 秒** | 完全不闪 |
+| 风险 | 无 | 保活会话一断，背光可能被写 0 → **全黑屏** |
+
+默认走共存。代价是每分钟最多 0.125 秒的闪，换来的是零风险。
+想彻底无闪就加 `--own`：
+
+```sh
+python /mnt/data/face2.py --own
 ```
 
 ---
 
-## 原理：怎么在别人家的 UI 上画画
+## 它怎么抢回屏幕
 
-不抢屏幕，**共存**。
+`lcd` 只在屏幕中部画一块约 170×64 的黑矩形，**不做全屏重绘**——
+所以只要在它画完之后立刻盖回去就行。
 
-实测发现原厂 `lcd` **不会周期性重绘 framebuffer** —— 往 `/dev/fb0` 写一整屏纯色，
-75 秒后 md5 纹丝不动；它只在**分钟跳变**时局部重绘时钟那一小块。
-所以 `face.py` 每秒往 `/dev/fb0` 写一帧，就把时钟盖住了；
-万一表情屏挂了，屏幕只是停在最后一帧，**按一下电源键 `lcd` 就把时钟画回来**，
-设备始终可用。
+做法是**回读校验**：每 0.125 秒把脸部区域（y 84–162）从 `/dev/fb0` 读回来，
+按 4 行 / 3 列抽样，跟内存里的帧逐点比对。发现不一致就立刻重绘。
 
-背光不是标准的 `/sys/class/backlight/`（那个目录是空的），而是一个 GPIO 节点：
+一次 seek + 一次 37 KB 读 + 约 1200 次比较 = **0.003 秒**，8 次/秒也才占 2.4 % CPU。
+抽样是安全的，因为原厂时钟是一整块实心黑矩形，任何落进去的采样点都会不一致。
+
+实机验证（95 秒 / 548 次独立采样）：
 
 ```
-/sys/devices/platform/soc/soc:ap-apb/24700000.spi/spi_master/spi0/spi0.0/bl_gpio
+samples=548  overlay_samples=1  worst_black=1742
 ```
 
-`echo 1 >` 开、`echo 0 >` 关。`face.py` 每 5 秒兜底重写一次，防止被别的东西关掉。
+也就是说黑块确实每分钟来一次，但 548 次采样里只抓到 1 次。
 
 ---
 
-## ⚠️ 踩过的坑（血泪版）
+## 性能
 
-### 1. `adb shell "cmd &"` 启动的进程**必死**
+改前每帧用 `''.join([chr(v & 255) + chr(v >> 8) for v in buf])` 拼 76 800 个字节。
+改后把调色板颜色在导入时预编码成 2 字节小端串，帧内只做查表。
 
-adb 会话一结束，设备端进程就被回收。`setsid`、`nohup`、双 fork **全都救不了**
-（实测 `setsid sleep 300` 也活不过 3 秒）。
+| 指标 | v1 | v2 |
+|---|---|---|
+| 打包一帧 | 0.250 s | **0.033 s**（快 7.6×） |
+| 绘制一帧 | 0.118 s | 0.069 s |
+| 整帧 | 0.197 s | **0.108 s**（快 1.8×） |
+| 最高帧率 | 5.1 fps | 9.2 fps |
+| 覆盖检测 | 无 | 0.003 s × 8 次/秒 |
 
-所以想常驻只有两条路：
+查表还加了"缺键自愈"（`dict` 子类的 `__missing__`），
+任何漏登记的临时颜色会在首次使用时自动编码并缓存，不会再出现 `KeyError` 把整帧打断。
 
-- **A（本项目采用，零风险）**：电脑端 `start "" /min adb.exe -s IP shell "python ..."`
-  挂住会话。电脑开着就一直显示。
-- **B**：`mount -o remount,rw /` 后加 `/etc/init.d/` 脚本 + `/etc/rc5.d/S99xx` 软链，
-  真正开机自启、不依赖电脑。但 `/` 是只读 ubifs，要改系统分区。
+---
 
-### 2. `pkill -f` 会把自己杀掉
+## 设备备忘
 
-```bash
-# ❌ 这条命令永远跑不到 kill -CONT：shell 自己的 cmdline 里含 "face.py"，
-#    pkill -f face.py 把执行它的 shell 一起杀了
-adb shell "pkill -f face.py; kill -CONT \$(pidof lcd)"
+| 项 | 值 |
+|---|---|
+| SoC | Unisoc UDX710，aarch64，**2 核 1.35 GHz** |
+| 系统 | BusyBox Linux 4.14.98（Yocto sumo），**非 Android** |
+| 内存 | 204 MB |
+| 屏幕 | `/dev/fb0`，240×320 RGB565 小端，stride 480 |
+| 背光 | `/sys/devices/platform/soc/soc:ap-apb/24700000.spi/spi_master/spi0/spi0.0/bl_gpio`（`echo 1`） |
+| 原厂 UI | `/usr/bin/lcd -platform linuxfb` |
+| 降频线 | 70 °C / 85 °C，110 °C 关机 |
+| 设备 Python | 2.7 精简版，**无** `array` / `math` / `mmap` / `base64` / `re` |
 
-# ✅ 用 [f] 规避自匹配
-adb shell "pkill -f '[f]ace.py'; kill -CONT \$(pidof lcd)"
-```
+### 几个踩过的坑
 
-而且**清理旧进程和启动新进程必须拆成两次 adb 调用** —— 写在同一条命令里时，
-命令行会同时含 `[f]ace.py` 和真实的 `/mnt/data/face.py`，`[f]` 那招就失效了。
+- **`adb shell "cmd &"` 起的后台进程必死**，`setsid` / `nohup` 都救不回来。
+  常驻只有两条路：PC 端挂住 adb 会话，或者 `mount -o remount,rw /` 后写 init 脚本。
+- **`pkill -f` 会杀掉自己**。清理和启动必须拆成两次 adb 调用，
+  并且用 `[f]ace2.py` 这种写法规避自匹配。
+- **`fylog` 的 VUPDATE 记录，标记行和数据行不在同一行**。
+  而且日志是边写边读的，最新那条通常只写了一半 ——
+  要往回找最后一条**完整**的（判断依据：含 `wifinum` 字段）。
+- **BusyBox 没有 `head -c` / `timeout`**，用 `sed -n '1,60p'`。
+- **`cmd.exe` 在这台机器上从 Bash / PowerShell 都调不起来**（安全策略），改用 .NET Process API。
 
-### 3. 千万不要对 `lcd` 用 `kill -STOP`
+---
 
-早期版本为了让表情屏独占屏幕，启动时 `kill -STOP lcd` 把它暂停。
-结果进程被 adb 回收后没能 `kill -CONT` 回来，`lcd` 永远卡在 `T` 状态，
-它的息屏定时器又把背光写成了 0 —— **屏幕全黑 + 按键完全没反应**，
-看起来像设备坏了。而且这台设备**没有 lcd 看门狗**，`lcd` 死了只能重启设备。
+## 已知限制
 
-现在 `face.py` 默认**不碰 `lcd`**，只有显式传 `--own` 才接管（不推荐）。
+- **保活依赖电脑**。电脑关机、休眠，或者关掉那个最小化的 adb 窗口，表情屏就停。
+- 柱状图历史不落盘，进程重启后从零开始。
+- 没做按客户端分别统计流量。
 
-### 4. 退出后画面不会自动还原
+## 安全提醒
 
-因为 `lcd` 只做局部重绘，表情屏停了之后屏幕会**停在最后一帧**。
-所以 `Stop` / `Fix` 里会把原厂时钟的原始帧写回去：
+设备**出厂 WiFi 密码是公开的弱默认密码（8 位纯数字）**，而且
+**ADB 5555 端口对外开放且免认证**——同一网段下任何人都能直接
+`adb connect 192.168.0.1:5555` 拿到 root。
 
-```bash
-adb shell "dd if=/mnt/data/fb.raw of=/dev/fb0 bs=1024 count=150"
-```
-
-`/mnt/data/fb.raw` 是原厂时钟界面的原始 framebuffer 备份（153600 字节），
-第一次连上设备时抓的，建议自己也在设备上留一份。
+建议改掉 WiFi 密码并关掉 ADB 调试口。
+但注意：**关掉 ADB 之后这个表情屏就没法推了**，两件事是冲突的。
 
 ---
 
 ## 文件
 
 | 文件 | 说明 |
-| --- | --- |
-| `face.py` | 表情屏本体，部署到设备 `/mnt/data/face.py`，Python 2.7 零依赖 |
-| `face-control.bat` | 电脑端控制面板：启动 / 停止 / 状态 / 修屏 |
-| `screen-fix.bat` | 黑屏时的一键急救（恢复 `lcd` + 背光 + 时钟画面） |
-| `preview-*.png` | 各状态预览图 |
-
-部署：
-
-```bash
-adb -s 192.168.0.1:5555 push face.py /mnt/data/face.py
-```
+|---|---|
+| `face2.py` | 表情屏本体，单文件零依赖，763 行 |
+| `face-control.bat` | Windows 控制面板 |
+| `screen-fix.bat` | 黑屏急救（独立于控制面板） |
+| `optimization-report.html` | v1 → v2 的完整优化报告（问题定位 + 实测数据） |
+| `preview-*.png` | 各状态预览（`live-device` 是真机截屏） |
 
 ---
 
-## 安全提醒
+## License
 
-这台设备的出厂配置是 **WiFi 密码 `12345678` + 开放 ADB 5555 端口**。
-同一个网段下任何人都能 `adb connect` 上去免密拿到 root，
-等于设备的完全控制权。**强烈建议改掉密码并关掉 5555。**
+MIT
