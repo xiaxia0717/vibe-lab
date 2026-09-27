@@ -28,6 +28,8 @@ BATS = '/sys/class/power_supply/sc27xx-fgu/status'
 CLIF = '/mnt/data/fy/config/wificlients'
 THERM = '/sys/class/thermal/thermal_zone9/temp'   # battery-thmzone (what the vendor UI shows)
 THERM_SOC = '/sys/class/thermal/thermal_zone0/temp'  # soc-thmzone (throttles at 70C)
+PING_HOST = '223.5.5.5'      # AliDNS -- reachable and cheap to hit from CN
+PING_TMP = '/tmp/face_ping.txt'
 
 
 def bl_on():
@@ -138,6 +140,9 @@ FONT = {
     'T': (0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04),
     'E': (0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F),
     'K': (0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11),
+    # lowercase -- only the two we need for the "ms" latency suffix
+    'm': (0x00, 0x00, 0x1A, 0x15, 0x15, 0x15, 0x15),
+    's': (0x00, 0x00, 0x0E, 0x10, 0x0E, 0x01, 0x1E),
 }
 
 buf = [BG] * (W * H)
@@ -463,6 +468,39 @@ def read_temp_soc():
     return t / 1000.0
 
 
+def ping_async():
+    """Fire off a one-shot ping in the background and return immediately.
+
+    Measured on the device: os.system() comes back in 0.004 s this way.  The
+    synchronous form blocks for a full 1.01 s whenever the host does not
+    answer -- long enough to leave the factory clock sitting on the face, so
+    we never call it that way.
+    """
+    try:
+        os.system('ping -c 1 -W 1 ' + PING_HOST + ' > ' + PING_TMP + ' 2>&1 &')
+    except:
+        pass
+
+
+def read_ping():
+    """RTT in ms from the last background ping, or -1 if there was no reply."""
+    try:
+        f = open(PING_TMP, 'r'); d = f.read(); f.close()
+    except:
+        return -1
+    i = d.find('time=')
+    if i < 0:
+        return -1
+    j = i + 5
+    k = j
+    while k < len(d) and (d[k].isdigit() or d[k] == '.'):
+        k += 1
+    try:
+        return float(d[j:k])
+    except:
+        return -1
+
+
 # ---------------------------------------------------------------- render ---
 def mood_of(down, up):
     if down < 0.05 and up < 0.05: return 'sleep'
@@ -563,17 +601,25 @@ def render(st):
     text((W - tw('MBPS', 1)) // 2, 214, 'MBPS', DIM2, 1)
 
     # ------------------------------------------------------------ info row
+    # upload / clients / latency / temperature.
+    # NOTE: there is deliberately no download figure here -- the big number
+    # above IS the download, so repeating it down here was pure noise.
     y = 234
-    arrow(16, y + 2, CYAN, True)
-    text(28, y + 4, '%.1f' % up, CYAN, 1)
-    # download uses the same colour as the big reading, so the two never disagree
-    arrow(86, y + 2, col, False)
-    text(98, y + 4, '%.1f' % down, col, 1)
+    arrow(10, y + 2, CYAN, True)
+    text(22, y + 4, '%.1f' % up, CYAN, 1)
 
     cl = st['clients']
     if cl >= 0:
-        client_icon(142, y + 1, BLUE)
-        text(158, y + 4, '%d' % cl, BLUE, 1)
+        client_icon(64, y + 1, BLUE)
+        text(78, y + 4, '%d' % cl, BLUE, 1)
+
+    pg = st['ping']
+    if pg < 0:
+        ps, pcol = '---', DIM2
+    else:
+        ps = '%dms' % int(pg + 0.5)
+        pcol = RED if pg >= 200 else (AMBER if pg >= 100 else DIM)
+    text(104, y + 4, ps, pcol, 1)
 
     tp = st['temp']
     soc = st['soc']
@@ -677,7 +723,8 @@ bl_on()
 st = {
     'down': 0.0, 'up': 0.0, 'mood': 'sleep', 'hot': False,
     'sig': 0, 'net': '--', 'band': '', 'bat': -1, 'chg': False,
-    'clients': -1, 'temp': 0.0, 'soc': 0.0, 'hist': [], 'frame': 0,
+    'clients': -1, 'temp': 0.0, 'soc': 0.0, 'ping': -1,
+    'hist': [], 'frame': 0,
 }
 
 prev = read_netdev()
@@ -686,6 +733,7 @@ bl_t = time.time()
 slow_t = 0.0
 hot = False
 time.sleep(1)
+ping_async()          # so the first slow tick has a reading to harvest
 
 while True:
     try:
@@ -719,6 +767,9 @@ while True:
             st['bat'], st['chg'] = pct, chg
             cl = read_clients()
             if cl >= 0: st['clients'] = cl
+            # harvest the ping we launched 8 s ago, then launch the next one
+            st['ping'] = read_ping()
+            ping_async()
 
         st['temp'] = read_temp()
         st['soc'] = read_temp_soc()
