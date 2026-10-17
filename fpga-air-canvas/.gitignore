@@ -1,0 +1,7 @@
+xsim.dir/
+*.log
+proj_air/
+proj_air_canvas/
+flag
+work/
+fpga-air-canvas/*.pb
