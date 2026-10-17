@@ -1,33 +1,68 @@
 # Air Canvas 空中画板
 
 - **阶段 0**：FPGA 追踪 IP + 仿真自验（`color_tracker.v`）
-- **阶段 1**：ARM 端画布/画线主程序（`arm/air_canvas.c`）✅ 已完成
-- **阶段 2（待）**：PL 硬件合成化 / 手势识别 / 双人对战
+- **阶段 1**：ARM 端画布/画线程序（`arm/air_canvas.c`）✅
+- **阶段 2**：全 PL 版（`pl/`，无 ARM 无 PS 无 IP）✅ **推荐路线**
 
 ## 这是什么
 
-空中画板的心脏：一个自己写的 FPGA 图像追踪 IP（`color_tracker.v`）。
-摄像头画面流过它时**原样透传**，同时在硬件里做三件事：
+摄像头画面穿过 FPGA 硬件管线：采集 → 降采样 → 背景差分 → 笔尖质心 →
+Bresenham 画彩虹线 → 叠加显示，全部发生在 PL 里，零 CPU 参与。
 
-1. **背景学习** — 按一下，冻结当前帧为背景
-2. **目标提取** — 逐像素灰度差分，超过阈值的就是"笔尖"
-3. **质心计算** — 每帧算出目标的 (cx, cy) 坐标，通过 AXI4-Lite 交给 ARM
-
-ARM 端（阶段 1）拿到坐标后在 DDR 画布上画彩虹拖尾，
-合成到输出帧由 VDMA 推给 7 寸屏。目标丢失 1.5 秒自动清屏。
+**阶段 2（pl/）是完整可烧板的方案**：对准桌面挥个白色笔帽，7 寸屏出彩虹拖尾；
+目标消失 1.5 秒自动清屏；按 KEY 重新学背景。
 
 ## 文件
 
 | 文件 | 作用 |
 |---|---|
-| `color_tracker.v` | 核心 IP，含内部除法器，单文件零 IP 依赖 |
-| `tb_color_tracker.v` | 自校验仿真台：合成视频流，自动比对坐标 |
-| `sim.tcl` | Vivado 一键仿真脚本 |
-| `walk_model.py` | tracker 拍级 Python 参考模型（10/10 PASS） |
-| `arm/line_draw.h/.c` | 画布库：Bresenham + HSV 彩虹 + overlay（24bpp） |
-| `arm/air_canvas.c` | ARM 主程序：读坐标→画线→合成→翻帧 |
-| `arm/verify_line_draw.py` | 画布库等价验证（6/6 PASS，本机 gcc 被安全策略拦） |
-| `arm/test_pattern.png` | 验证渲染图：彩虹底 + Bresenham 画线 |
+| `color_tracker.v` | 阶段 0 的 AXI 版追踪 IP（学习/备查） |
+| `tb_color_tracker.v` / `sim.tcl` / `walk_model.py` | 阶段 0 仿真自验 |
+| `arm/line_draw.c` / `air_canvas.c` | 阶段 1：ARM 端画线（备选路线） |
+| `pl/top_air_canvas.v` | **阶段 2 顶层** |
+| `pl/cam_capture_ds.v` | OV5640 采集 + 2x2 降采样（640x480→320x240） |
+| `pl/tracker_pl.v` | 追踪器（cam 域，无 AXI） |
+| `pl/canvas_pl.v` | 画布：硬件 Bresenham + 8bpp 彩虹索引 |
+| `pl/video_out.v` | 800x480 上采样合成 + 叠加 |
+| `pl/uint_div.v` | 24 位恢复余数除法器（复用） |
+| `pl/i2c_dri.v` / `i2c_ov5640_rgb565_cfg.v` | 正点原子例程版权模块 |
+| `pl/lcd_driver.v` / `clk_div.v` | 正点原子例程版权模块 |
+| `pl/air_canvas.xdc` | 引脚约束（摄像头+LCD+按键，合并自你 D 盘例程） |
+| `pl/verify_pl_chain.py` | 全链逻辑验证（12/12 PASS） |
+
+## 阶段 2 烧板步骤（最简单路线）
+
+1. Vivado 新建工程，器件选 **xc7z020clg400-2**（领航者 7020）
+2. `Add Sources` 添加 `pl/` 下**全部 .v**（10 个）；`Add Constraints` 加 `air_canvas.xdc`
+3. top 模块设为 `top_air_canvas`
+4. Run Synthesis → Run Implementation → Generate Bitstream
+5. 烧录（Auto Connect 到板子），**无 SDK 无 ARM 无 PS**，上电即玩
+
+## 交互说明
+
+| 操作 | 效果 |
+|---|---|
+| 挥白色笔帽 | 彩虹拖尾画线 |
+| 目标静止不动约 1.5s（或握拳遮住） | 自动清屏 |
+| 按 KEY0（L14） | 重新学习背景 + 清屏（重摆摄像头后） |
+| 按 KEY1（K16） | 清屏 |
+| 上电 | 等摄像头初始化完成 + 3 秒自动学背景 |
+
+## 验证状态（2026-10-18）
+
+| 验证项 | 状态 | 说明 |
+|---|---|---|
+| Verilog 编译（全 PL 10 文件） | ✅ 通过 | QuestaSim vlog 0 error 0 warning |
+| 全链逻辑（capture→tracker→canvas） | ✅ 通过 | `verify_pl_chain.py` 12/12 PASS |
+| 抓到并修复 2 个真 bug | ✅ | ① RGB565 灰度化未扩 8bit（白色亮度被压到 1/5，差分全废）② MIN_AREA=9 会被 2x2 降采样饿死（3x3 笔帽降采样后仅 4 像素，改 3） |
+| 时序收敛 / 上板 | ⏳ | 需在 GUI Vivado 里 synth+impl 看 timing |
+
+## 已知限制（下一步优化）
+
+- 帧缓冲 320x240 上采样到 800x480 是 nearest（x2.5/y2），画布笔迹边缘轻微锯齿
+- 单色目标（白色）；彩色笔帽需升级 tracker 的 RGB 差分（README 路线图见下）
+- cam_pclk 40ns 周期假设来自例程 xdc（25MHz）；若 OV5640 输出帧率不同请核对 `i2c_ov5640_rgb565_cfg` 参数
+- LCD 图比源图水平偏移 1 像素（BRAM 读延迟，画板无感，如需精确可加预取流水）
 
 ## 怎么跑仿真
 
@@ -57,17 +92,6 @@ ALL TESTS PASSED
 ```
 
 看到 `ALL TESTS PASSED` 说明：背景学习、差分、质心、除法、AXI 全部打通。
-
-## 当前验证状态（2026-10-17）
-
-| 验证项 | 状态 | 说明 |
-|---|---|---|
-| Verilog 编译 | ✅ 通过 | QuestaSim vlog 0 error 0 warning |
-| AXI 声明顺序 bug | ✅ 已修 | `s_axi_wr_ctrl_learn` 声明前置 |
-| 32→24 位宽不匹配 | ✅ 已修 | snap_x/snap_y/snap_a 截断到 [23:0] |
-| tracker 算法逻辑 | ✅ 通过 | `walk_model.py` 拍级参考模型 10/10 PASS |
-| 画布库逻辑 | ✅ 通过 | `arm/verify_line_draw.py` 等价验证 6/6 PASS |
-| xsim 行为级仿真 | ⏳ 待跑 | 本机命令行 xelab 有环境坑（见下），需 GUI 里一键跑 |
 
 ## ARM 端上板步骤（阶段 1）
 
